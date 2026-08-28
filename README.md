@@ -7,7 +7,7 @@
 <p align="center">
   Cross-platform desktop client for <a href="https://www.navidrome.org/">Navidrome</a>
   and Subsonic-compatible servers.<br>
-  macOS, Windows and Linux from one Tauri 2 + React + Rust codebase.
+  Windows and Linux from one Tauri 2 + React + Rust codebase.
 </p>
 
 <p align="center">
