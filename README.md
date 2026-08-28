@@ -1,11 +1,28 @@
-# Splice Desktop
+<p align="center">
+  <img src="assets/icon.png" alt="Splice" width="140">
+</p>
 
-Cross-platform desktop client for [Navidrome](https://www.navidrome.org/) and
-Subsonic-compatible servers — macOS, Windows, and Linux from one Tauri 2 + React +
-Rust codebase.
+<h1 align="center">Splice Desktop</h1>
+
+<p align="center">
+  Cross-platform desktop client for <a href="https://www.navidrome.org/">Navidrome</a>
+  and Subsonic-compatible servers.<br>
+  macOS, Windows and Linux from one Tauri 2 + React + Rust codebase.
+</p>
+
+<p align="center">
+  <a href="https://discord.gg/kkaZfRpsm"><strong>Join the Discord →</strong></a><br>
+  <sub>Questions, bug reports and release announcements.</sub>
+</p>
+
+---
 
 Splice opens on server login and never substitutes a bundled demo library. After you
 authenticate, it renders only what your own server returns.
+
+> **Coming to Apple devices.** The main Splice app for iPhone, iPad and Apple TV is
+> arriving on **TestFlight soon**. Join the [Discord](https://discord.gg/kkaZfRpsm)
+> to get the invite when it goes out.
 
 ## Download
 
@@ -13,35 +30,29 @@ Grab an installer from the [latest release](../../releases/latest):
 
 | Platform | File |
 | --- | --- |
-| Windows | `.msi` or `.exe` (NSIS) |
+| Windows | `.exe` (NSIS) or `.msi` |
 | Linux | `.AppImage` or `.deb` |
-| macOS | build locally — see below |
 
 **You need your own server.** Splice is a client, not a music service. Point it at a
 Navidrome or Subsonic-compatible server you already run.
 
-### macOS
-
-macOS installers are deliberately not published. Signing them requires a paid Apple
-Developer ID certificate; without one, the only thing CI could produce is an unsigned
-DMG that Gatekeeper refuses on any Mac except the one that built it — the recipient
-would have to right-click → Open or strip the quarantine attribute by hand. Shipping
-an installer that needs those instructions is worse than shipping none.
-
-Build it yourself instead:
-
-```sh
-npm install
-npm run tauri:build:mac
-```
-
-That signs against a code-signing identity already in your Keychain, which is fine for
-your own machine and is not distributable.
+Builds are not signed for public distribution, so Windows SmartScreen may ask for
+confirmation on first launch — choose **More info → Run anyway**.
 
 ## Features
 
-Full-library navigation, server search, protected artwork and audio, playback and
-queue controls, Liked Songs, playlist creation, session restore, and Splice Connect.
+- **Full library browsing** — Home, Search, Library, albums, artists, playlists and
+  Liked Songs, backed live by your own server
+- **Daily Mix & listening stats** — personalized mixes generated from your library,
+  plus top songs, artists and albums, listening clock, streaks and habits
+- **Splice Connect** — discover and hand off playback between your devices, with
+  shared queue and transport control
+- **Offline downloads** — per-server download management with in-flight/failed state
+  and disk preflight checks
+- **Multi-server support** — library index, downloads and cached shelves are scoped
+  per connected server
+- **Secure by default** — credentials stored in the OS keychain; artwork and audio are
+  proxied without exposing your API token
 
 ## Development
 
@@ -55,23 +66,9 @@ npm run build
 npm run tauri dev
 ```
 
-On macOS, use `npm run tauri:dev:mac` for normal development. It signs each rebuilt
-Rust executable with the same installed Apple identity and the `com.splice.desktop`
-identifier before launch. After choosing **Always Allow** on the first Keychain
-authorization, later development launches should not ask for your login password
-again. The cross-platform `npm run tauri dev` still works, but its unsigned macOS
-executable can trigger a fresh Keychain prompt after each rebuild.
-
-### Builds
-
-Native distributables must be built on their target operating system: macOS produces
-an app/DMG, Windows produces MSI/NSIS installers, and Linux produces AppImage/deb/rpm
-packages.
-
-CI builds **Windows and Linux only**, attaching installers to the run's Artifacts, or
-to a draft GitHub release on a `v*` tag.
-[`.github/workflows/desktop-installers.yml`](.github/workflows/desktop-installers.yml)
-documents what to change if a Developer ID certificate is obtained later.
+Native distributables must be built on their target operating system. CI builds
+Windows and Linux installers, attaching them to the run's Artifacts, or to a draft
+GitHub release on a `v*` tag.
 
 ## License
 
