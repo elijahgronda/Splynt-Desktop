@@ -1,7 +1,7 @@
 import {
-  Disc3, Download, GripVertical, Heart, Info, ListEnd, ListMusic, MessageSquareQuote,
+  Disc3, Download, GripVertical, Heart, Info, Laptop, ListEnd, ListMusic, MessageSquareQuote,
   Minimize2, MonitorSpeaker, MoreHorizontal, Pause, Play, Plus, Radio, SkipBack, SkipForward,
-  Trash2, UserRound, X,
+  Smartphone, Trash2, Tv, UserRound, X,
 } from "lucide-react";
 import type { DragEvent as ReactDragEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { CSSProperties } from "react";
@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { MediaArtwork } from "./MediaArtwork";
 import { PlaybackProgress } from "./RangeSlider";
+import { TrackSlide } from "./TrackSlide";
 
 type ContextPanelProps = {
   mode: ContextPanelMode;
@@ -26,6 +27,10 @@ type ContextPanelProps = {
   groupId?: string;
   onMoveHere: (peer: ConnectPeer) => void;
   onMoveToDevice: (peer: ConnectPeer) => void;
+  /// The peer this computer is currently driving, if any. The panel could not
+  /// see it, so it could not offer the one action a listener in that state
+  /// wants: bring the audio back here.
+  remoteDeviceId?: string;
   onResize: (event: ReactPointerEvent) => void;
   onResizeKey: (event: ReactKeyboardEvent<HTMLButtonElement>) => void;
   onSend: (peerId: string, command: ConnectCommand) => void;
@@ -58,6 +63,7 @@ export function DesktopContextPanel(props: ContextPanelProps) {
           onSend={props.onSend}
           onStartGroup={props.onStartGroup}
           onStopGroup={props.onStopGroup}
+          remoteDeviceId={props.remoteDeviceId}
           snapshot={props.connect}
         />
       )}
@@ -181,7 +187,34 @@ function activeLyricIndex(lyrics: LyricsResult, position: number) {
     : -1;
 }
 
-function ConnectPanel({ canHandoff, groupId, onMoveHere, onMoveToDevice, onSend, onStartGroup, onStopGroup, snapshot }: {
+/// A desktop peer defaults to the OS computer name, which arrives over Bonjour
+/// as `Something.local`. Nobody calls their laptop that. Mirrors
+/// `SpliceConnectPeer.displayName` on the Swift side.
+function deviceName(peer: ConnectPeer) {
+  return peer.name.toLowerCase().endsWith(".local") ? peer.name.slice(0, -6) : peer.name;
+}
+
+/// One glyph for every device made the picker read as a list of identical
+/// phones. The platform string is already on the wire; nothing was using it.
+function DeviceIcon({ platform, size = 21 }: { platform: string; size?: number }) {
+  if (platform === "tvOS" || platform === "Apple TV") return <Tv size={size} />;
+  if (platform === "iPhone" || platform === "iOS") return <Smartphone size={size} />;
+  if (platform === "macOS" || platform === "Windows" || platform === "Linux") return <Laptop size={size} />;
+  return <MonitorSpeaker size={size} />;
+}
+
+/// What this computer is to that device, in three words or fewer. During a
+/// session every row looked identical, and which device leads is the thing a
+/// listener most needs to read off this panel.
+function roleBadge(peer: ConnectPeer, remoteDeviceId?: string, groupId?: string) {
+  if (peer.id === remoteDeviceId) return "You control this";
+  if (groupId && peer.commitment?.sessionID === groupId) return "In this session";
+  if (peer.commitment?.controllingPeerID) return "Acting as a remote";
+  if (peer.commitment?.sessionID) return "In another session";
+  return undefined;
+}
+
+function ConnectPanel({ canHandoff, groupId, onMoveHere, onMoveToDevice, onSend, onStartGroup, onStopGroup, remoteDeviceId, snapshot }: {
   canHandoff: boolean;
   groupId?: string;
   onMoveHere: (peer: ConnectPeer) => void;
@@ -189,6 +222,7 @@ function ConnectPanel({ canHandoff, groupId, onMoveHere, onMoveToDevice, onSend,
   onSend: (peerId: string, command: ConnectCommand) => void;
   onStartGroup: () => void;
   onStopGroup: () => void;
+  remoteDeviceId?: string;
   snapshot: ConnectSnapshot;
 }) {
   return (
@@ -200,29 +234,45 @@ function ConnectPanel({ canHandoff, groupId, onMoveHere, onMoveToDevice, onSend,
       </div>
       {canHandoff && snapshot.peers.length > 0 && (
         <button className={groupId ? "group-session group-session--active" : "group-session"} onClick={groupId ? onStopGroup : onStartGroup} type="button">
-          <MonitorSpeaker size={18} /><span><strong>{groupId ? "End group session" : "Play on every device"}</strong><small>{groupId ? "This computer is keeping the group in sync." : "Start a synchronized session with the players below."}</small></span>
+          <MonitorSpeaker size={18} /><span><strong>{groupId ? "End group session" : `Play on all ${snapshot.peers.length + 1} devices`}</strong><small>{groupId ? "This computer is keeping the group in sync." : "Start a synchronized session with the players below."}</small></span>
         </button>
       )}
       {snapshot.peers.length ? snapshot.peers.map((peer) => (
         <section className="connect-device" key={peer.id}>
           <div className="connect-device__identity">
-            <MonitorSpeaker size={21} />
-            <span><strong>{peer.name}</strong><small>{peer.platform}{peer.playback.title ? ` · ${peer.playback.title}` : " · Not playing"}</small></span>
+            <DeviceIcon platform={peer.platform} />
+            <span>
+              <strong>{deviceName(peer)}</strong>
+              <small>{peer.platform}{peer.playback.title ? ` · ${peer.playback.title}` : " · Not playing"}</small>
+            </span>
+            {roleBadge(peer, remoteDeviceId, groupId) && (
+              <em className="connect-device__role">{roleBadge(peer, remoteDeviceId, groupId)}</em>
+            )}
           </div>
-          {peer.playback.trackId && (
+          {peer.playback.trackID && (
             <><div className="connect-device__track">
-              <MediaArtwork alt="" className="queue-row__art" coverArt={peer.playback.coverArtId} />
+              <MediaArtwork alt="" className="queue-row__art" coverArt={peer.playback.coverArtID} />
               <span><strong>{peer.playback.title}</strong><small>{peer.playback.artist}</small></span>
             </div><PlaybackProgress className="connect-device__progress" duration={peer.playback.duration} isPlaying={peer.playback.isPlaying} onSeek={(value) => onSend(peer.id, { name: "seek", value })} position={peer.playback.position} /></>
           )}
           <div className="connect-device__controls">
-            <button aria-label={`Previous on ${peer.name}`} onClick={() => onSend(peer.id, { name: "previous" })} type="button"><SkipBack fill="currentColor" size={16} /></button>
-            <button aria-label={`${peer.playback.isPlaying ? "Pause" : "Play"} on ${peer.name}`} onClick={() => onSend(peer.id, { name: peer.playback.isPlaying ? "pause" : "play" })} type="button">{peer.playback.isPlaying ? <Pause fill="currentColor" size={17} /> : <Play fill="currentColor" size={17} />}</button>
-            <button aria-label={`Next on ${peer.name}`} onClick={() => onSend(peer.id, { name: "next" })} type="button"><SkipForward fill="currentColor" size={16} /></button>
+            <button aria-label={`Previous on ${deviceName(peer)}`} onClick={() => onSend(peer.id, { name: "previous" })} type="button"><SkipBack fill="currentColor" size={16} /></button>
+            <button aria-label={`${peer.playback.isPlaying ? "Pause" : "Play"} on ${deviceName(peer)}`} onClick={() => onSend(peer.id, { name: peer.playback.isPlaying ? "pause" : "play" })} type="button">{peer.playback.isPlaying ? <Pause fill="currentColor" size={17} /> : <Play fill="currentColor" size={17} />}</button>
+            <button aria-label={`Next on ${deviceName(peer)}`} onClick={() => onSend(peer.id, { name: "next" })} type="button"><SkipForward fill="currentColor" size={16} /></button>
           </div>
+          {/* One primary per row, and while this computer is driving a device
+              the primary is the way home. "Play here" and "Play on <device>"
+              used to sit side by side at equal weight, with "here" meaning a
+              different machine than the card it was printed on. */}
           <div className="connect-device__actions">
-            {peer.playback.trackId && <button onClick={() => onMoveHere(peer)} type="button">Play here</button>}
-            {canHandoff && <button className="connect-primary" onClick={() => onMoveToDevice(peer)} type="button">Play on {peer.name}</button>}
+            {peer.playback.trackID && (
+              <button className={peer.id === remoteDeviceId ? "connect-primary" : undefined} onClick={() => onMoveHere(peer)} type="button">
+                Play on this computer
+              </button>
+            )}
+            {canHandoff && peer.id !== remoteDeviceId && (
+              <button className="connect-primary" onClick={() => onMoveToDevice(peer)} type="button">Play on {deviceName(peer)}</button>
+            )}
           </div>
         </section>
       )) : <PanelEmpty icon={MonitorSpeaker} text="No other Splice players found on this network." />}
@@ -275,7 +325,6 @@ export function FullPlayer({ liked, lyrics, lyricsAutoScroll, lyricsLoading, lyr
           setMenuOpen(false);
         }
       }}
-      style={style}
     >
       <header className="full-player__header">
         <span className="full-player__context"><strong>{current.title}</strong><small>Playing from {playback.contextLabel}</small></span>
@@ -300,39 +349,47 @@ export function FullPlayer({ liked, lyrics, lyricsAutoScroll, lyricsLoading, lyr
       </header>
 
       <div className="full-player__scroll">
-        {surface === "artwork" ? <>
-          <section aria-label="Artwork" className="full-player__hero">
-            <MediaArtwork alt={`${current.title} cover`} className="full-player__art" coverArt={current.coverArt} />
-          </section>
-          <section aria-label="About current track" className="full-player__details">
-            <article className="full-player__detail-card full-player__detail-card--artist">
-              <UserRound size={24} /><p className="eyebrow">ABOUT THE ARTIST</p><h2>{current.artist}</h2><p>Artist information from your connected music server.</p>
-              {current.artistId && <button onClick={openArtist} type="button">View artist</button>}
-            </article>
-            <article className="full-player__detail-card"><p className="eyebrow">CREDITS</p><h2>Credits</h2><dl><dt>Main artist</dt><dd>{current.artist}</dd><dt>Source</dt><dd>{playback.contextLabel}</dd></dl></article>
-            <article className="full-player__detail-card full-player__detail-card--album">
-              <MediaArtwork alt={`${current.album} cover`} className="full-player__detail-art" coverArt={current.coverArt} />
-              <span><p className="eyebrow">FROM THE ALBUM</p><h2>{current.album}</h2><p>{[current.artist, current.year].filter(Boolean).join(" · ")}</p>{current.albumId && <button onClick={openAlbum} type="button">View album</button>}</span>
-            </article>
-            <article className="full-player__detail-card"><Info size={22} /><p className="eyebrow">PLAYBACK</p><h2>{quality}</h2><p>{current.duration ? `${Math.floor(current.duration / 60)} min ${Math.floor(current.duration % 60)} sec` : "Duration unavailable"}</p></article>
-          </section>
-        </> : <section aria-label="Lyrics" className="full-player__lyrics-surface">
-          <div className="full-player__lyrics-heading"><span><p className="eyebrow">LYRICS</p><h2>{lyrics.synced ? "Following playback" : "Full lyrics"}</h2></span><button aria-label="Show artwork" onClick={() => setSurface("artwork")} type="button"><X size={20} /></button></div>
-          {lyricsLoading ? <div className="full-player__lyrics-empty">Loading lyrics…</div> : lyrics.lines.length ? <FullLyrics autoScroll={lyricsAutoScroll} lyrics={lyrics} playback={playback} textSize={lyricsTextSize} /> : <div className="full-player__lyrics-empty">No lyrics were returned for this song.</div>}
-        </section>}
+        <TrackSlide className="full-player__stage" direction={playback.trackDirection} slideKey={current.id} variant="cover">
+          <div className="full-player__canvas" style={style}>
+            <div className="full-player__split">
+              <section aria-label="Artwork" className="full-player__hero">
+                <MediaArtwork alt={`${current.title} cover`} className="full-player__art" coverArt={current.coverArt} />
+              </section>
+              <section aria-label="Lyrics" className="full-player__lyrics-surface" inert={surface !== "lyrics"}>
+                <div className="full-player__lyrics-heading"><span><p className="eyebrow">LYRICS</p><h2>{lyrics.synced ? "Following playback" : "Full lyrics"}</h2></span><button aria-label="Show artwork" onClick={() => setSurface("artwork")} type="button"><X size={20} /></button></div>
+                {lyricsLoading ? <div className="full-player__lyrics-empty">Loading lyrics…</div> : lyrics.lines.length ? <FullLyrics active={surface === "lyrics"} autoScroll={lyricsAutoScroll} lyrics={lyrics} playback={playback} textSize={lyricsTextSize} /> : <div className="full-player__lyrics-empty">No lyrics were returned for this song.</div>}
+              </section>
+            </div>
+          </div>
+        </TrackSlide>
+        <section aria-label="About current track" className="full-player__details" key={current.id}>
+          <article className="full-player__detail-card full-player__detail-card--artist">
+            <UserRound size={24} /><p className="eyebrow">ABOUT THE ARTIST</p><h2>{current.artist}</h2><p>Artist information from your connected music server.</p>
+            {current.artistId && <button onClick={openArtist} type="button">View artist</button>}
+          </article>
+          <article className="full-player__detail-card"><p className="eyebrow">CREDITS</p><h2>Credits</h2><dl><dt>Main artist</dt><dd>{current.artist}</dd><dt>Source</dt><dd>{playback.contextLabel}</dd></dl></article>
+          <article className="full-player__detail-card full-player__detail-card--album">
+            <MediaArtwork alt={`${current.album} cover`} className="full-player__detail-art" coverArt={current.coverArt} />
+            <span><p className="eyebrow">FROM THE ALBUM</p><h2>{current.album}</h2><p>{[current.artist, current.year].filter(Boolean).join(" · ")}</p>{current.albumId && <button onClick={openAlbum} type="button">View album</button>}</span>
+          </article>
+          <article className="full-player__detail-card"><Info size={22} /><p className="eyebrow">PLAYBACK</p><h2>{quality}</h2><p>{current.duration ? `${Math.floor(current.duration / 60)} min ${Math.floor(current.duration % 60)} sec` : "Duration unavailable"}</p></article>
+        </section>
       </div>
     </section>
   );
 }
 
-function FullLyrics({ autoScroll, lyrics, playback, textSize }: { autoScroll: boolean; lyrics: LyricsResult; playback: PlaybackController; textSize: "small" | "standard" | "large" }) {
+/// `active` is false while the pane is parked off to the side of the artwork.
+/// The lines stay mounted so the split can animate both ways, but following
+/// playback in a pane nobody can see is just a smooth-scroll running forever.
+function FullLyrics({ active, autoScroll, lyrics, playback, textSize }: { active: boolean; autoScroll: boolean; lyrics: LyricsResult; playback: PlaybackController; textSize: "small" | "standard" | "large" }) {
   const activeIndex = activeLyricIndex(lyrics, playback.position);
   const activeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (!autoScroll || !lyrics.synced) return;
+    if (!active || !autoScroll || !lyrics.synced) return;
     if (typeof activeRef.current?.scrollIntoView !== "function") return;
     activeRef.current.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
-  }, [activeIndex, autoScroll, lyrics.synced]);
+  }, [active, activeIndex, autoScroll, lyrics.synced]);
   return (
     <div className={`full-lyrics full-lyrics--${textSize}`}>
       {lyrics.lines.map((line, index) => lyrics.synced ? (

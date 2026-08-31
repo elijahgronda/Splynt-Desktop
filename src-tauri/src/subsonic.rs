@@ -1493,8 +1493,14 @@ async fn local_media_response(path: PathBuf, headers: &HeaderMap) -> Response<Bo
         Some(value) => match parse_byte_range(Some(value), full_length) {
             Some((start, end)) => (start, end, StatusCode::PARTIAL_CONTENT),
             None => {
+                // The header matters on this path too, not just the success
+                // one: the audio elements are CORS-checked so the equalizer
+                // can route them through Web Audio, and a 416 without it
+                // reaches the player as an opaque CORS failure rather than as
+                // the range error it is.
                 return Response::builder()
                     .status(StatusCode::RANGE_NOT_SATISFIABLE)
+                    .header("Access-Control-Allow-Origin", "*")
                     .header(header::CONTENT_RANGE, format!("bytes */{full_length}"))
                     .body(Body::empty())
                     .unwrap_or_else(|_| Response::new(Body::empty()));

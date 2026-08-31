@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { EqualizerGraph } from "../lib/equalizerGraph";
+import { flatEqualizer, type EqualizerSettings } from "../lib/equalizer";
 import type { RepeatMode, SongSummary } from "../types";
 
 type PersistedPlayback = {
@@ -16,6 +18,7 @@ type PersistedPlayback = {
 export type PlaybackOptions = {
   shuffleMode?: "fewerRepeats" | "random";
   crossfadeSeconds: number;
+  equalizer?: EqualizerSettings;
   gapless: boolean;
   autoplay: boolean;
   onQueueExhausted?: (last: SongSummary) => void;
@@ -68,6 +71,13 @@ function createElement() {
   if (typeof Audio === "undefined") return undefined;
   const element = new Audio();
   element.preload = "auto";
+  // Set before any `src`, and unconditionally rather than only when the
+  // equalizer is on: `crossOrigin` only takes effect on requests made after it
+  // is assigned, so flipping it later would need a reload mid-track. Splice's
+  // own media proxy answers with `Access-Control-Allow-Origin: *` on both the
+  // streamed and the downloaded path, so this changes nothing about what plays.
+  // Without it, routing the element through Web Audio yields silence.
+  element.crossOrigin = "anonymous";
   return element;
 }
 
@@ -84,6 +94,21 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
   const activeSlot = useRef<0 | 1>(0);
   const audio = useCallback(() => elementsRef.current[activeSlot.current], []);
   const partner = useCallback(() => elementsRef.current[activeSlot.current === 0 ? 1 : 0], []);
+
+  // The equalizer owns both elements, not just the active one: a crossfade has
+  // two of them audible at once, and only hearing the filters on one would be
+  // worse than not having them at all. The graph itself stays dormant until the
+  // curve is doing something. See lib/equalizerGraph.ts.
+  const equalizerRef = useRef<EqualizerGraph | undefined>(undefined);
+  if (!equalizerRef.current) equalizerRef.current = new EqualizerGraph();
+  useEffect(() => {
+    const graph = equalizerRef.current;
+    elementsRef.current.forEach((element) => graph?.register(element));
+    return () => graph?.dispose();
+  }, []);
+  useEffect(() => {
+    equalizerRef.current?.apply(options.equalizer ?? flatEqualizer);
+  }, [options.equalizer]);
 
   const [queue, setQueue] = useState<SongSummary[]>(initial.queue);
   const [index, setIndex] = useState(initial.index);
@@ -111,6 +136,8 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
   queueRef.current = queue;
   const indexRef = useRef(index);
   indexRef.current = index;
+  const positionRef = useRef(position);
+  positionRef.current = position;
   const manualQueueCountRef = useRef(manualQueueCount);
   manualQueueCountRef.current = manualQueueCount;
   const volumeRef = useRef(volume);
@@ -118,9 +145,16 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // Which way the last track change moved through the queue. The UI reads this
+  // to decide whether the outgoing track leaves to the left or the right; it is
+  // a ref because every write is immediately followed by the `setIndex` that
+  // re-renders, and shuffle makes the raw index delta meaningless.
+  const skipDirection = useRef<1 | -1>(1);
+
   // The slot holding the next track, and the queue index it holds.
   const preloaded = useRef<{ index: number; slot: 0 | 1 } | undefined>(undefined);
   const fadeTimer = useRef<number | undefined>(undefined);
+  const rateTimer = useRef<number | undefined>(undefined);
   // True only while a transition is stopping the outgoing element, so its
   // "pause" event is not mistaken for the user pausing playback.
   const adopting = useRef(false);
@@ -223,6 +257,7 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
     pendingPosition.current = 0;
     alreadyPlaying.current = targetIndex;
     shouldAutoplay.current = true;
+    skipDirection.current = 1;
     notePlayed(queueRef.current[targetIndex]);
     setPosition(0);
     setDuration(queueRef.current[targetIndex]?.duration ?? 0);
@@ -244,6 +279,7 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
     }
     releasePartner();
     shouldAutoplay.current = true;
+    skipDirection.current = direction;
     pendingPosition.current = 0;
     if (direction === 1 && manualQueueCountRef.current > 0) {
       setManualQueueCount((count) => Math.max(0, count - 1));
@@ -488,6 +524,7 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
     releasePartner();
     alreadyPlaying.current = undefined;
     shouldAutoplay.current = autoplay;
+    skipDirection.current = 1;
     pendingPosition.current = Math.max(0, startPosition);
     shuffleOrder.current = reshuffle(songs, safeIndex);
     shuffleCursor.current = 0;
@@ -518,6 +555,57 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
     element.currentTime = Math.max(0, Math.min(seconds, duration || seconds));
     setPosition(element.currentTime);
   }, [audio, cancelFade, duration]);
+
+  /// The exact playhead, read from the audio element at the moment of the call.
+  ///
+  /// `position` is React state that is deliberately published only when the
+  /// whole second changes, so the shell does not re-render several times a
+  /// second; the progress rail interpolates between those anchors locally, so
+  /// the throttle is invisible on screen. It is not invisible to anything that
+  /// treats the value as a *measurement* — every Splice Connect path did, and
+  /// inherited up to a second of error both in the clock it published and in
+  /// the drift it computed against another device's clock. Those read this.
+  const positionNow = useCallback(() => {
+    const element = audio();
+    if (element && element.readyState > 0 && Number.isFinite(element.currentTime)) {
+      return Math.max(0, element.currentTime);
+    }
+    // Mid-load the element has no meaningful time yet; the last published
+    // anchor is closer to the truth than zero.
+    return positionRef.current;
+  }, [audio]);
+
+  /// Nudges the audio clock instead of jumping it, for Splice Connect group
+  /// drift correction.
+  ///
+  /// `preservesPitch` is on by default in both webviews Splice ships against,
+  /// but it is set here anyway: a 2% correction that shifts pitch is a
+  /// correction the listener can hear, which is the whole thing this avoids.
+  /// The restore has its own deadline because the leader can go quiet
+  /// mid-convergence, and a follower left at 98% walks away from the room at
+  /// exactly the rate meant to catch it up.
+  const convergeRate = useCallback((rate: number, seconds: number) => {
+    const element = audio();
+    if (!element || element.paused) return;
+    if (rateTimer.current !== undefined) window.clearTimeout(rateTimer.current);
+    element.preservesPitch = true;
+    element.playbackRate = rate;
+    rateTimer.current = window.setTimeout(() => {
+      rateTimer.current = undefined;
+      const current = audio();
+      if (current) current.playbackRate = 1;
+    }, Math.max(0, seconds) * 1000);
+  }, [audio]);
+
+  /// Returns to normal speed. Safe when nothing is converging.
+  const endConvergence = useCallback(() => {
+    if (rateTimer.current !== undefined) {
+      window.clearTimeout(rateTimer.current);
+      rateTimer.current = undefined;
+    }
+    const element = audio();
+    if (element && element.playbackRate !== 1) element.playbackRate = 1;
+  }, [audio]);
 
   const setVolume = useCallback((value: number) => {
     const safe = Math.max(0, Math.min(1, value));
@@ -693,6 +781,7 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
   useEffect(() => () => {
     if (recoveryTimer.current !== undefined) window.clearTimeout(recoveryTimer.current);
     if (fadeTimer.current !== undefined) window.clearInterval(fadeTimer.current);
+    if (rateTimer.current !== undefined) window.clearTimeout(rateTimer.current);
     for (const element of elementsRef.current) {
       if (!element) continue;
       element.pause();
@@ -703,12 +792,13 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
 
   return useMemo(() => ({
     current, queue, index, isPlaying, position, duration, volume, shuffle, repeat, contextLabel, error,
+    trackDirection: skipDirection.current,
     manualQueueCount, undoQueueLabel: undoQueue?.label,
     playQueue, toggle, next: () => advance(1), previous: () => position > 4 ? seek(0) : advance(-1),
     seek, setVolume, setShuffle, cycleRepeat, enqueue, playNext, removeQueueItem, moveQueueItem, clearUpcoming, clearManualQueue, undoQueueMutation,
-    replaceQueuePreservingCurrent, appendToQueue,
-  }), [advance, appendToQueue, clearManualQueue, clearUpcoming, contextLabel, current, cycleRepeat, duration, enqueue, error, index, isPlaying,
-    manualQueueCount, moveQueueItem, playNext, playQueue, position, queue, removeQueueItem, repeat, replaceQueuePreservingCurrent, seek, setShuffle, setVolume,
+    replaceQueuePreservingCurrent, appendToQueue, positionNow, convergeRate, endConvergence,
+  }), [advance, appendToQueue, clearManualQueue, clearUpcoming, contextLabel, convergeRate, current, cycleRepeat, duration, endConvergence, enqueue, error, index, isPlaying,
+    manualQueueCount, moveQueueItem, playNext, playQueue, position, positionNow, queue, removeQueueItem, repeat, replaceQueuePreservingCurrent, seek, setShuffle, setVolume,
     shuffle, toggle, undoQueue, undoQueueMutation, volume]);
 }
 

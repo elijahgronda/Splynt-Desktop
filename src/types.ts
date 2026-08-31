@@ -187,12 +187,18 @@ export type DesktopRoute =
 
 export type RepeatMode = "off" | "all" | "one";
 
+/// Wire field names follow `SpliceConnect.swift`, which `docs/connect/WIRE-V1.md`
+/// names as the contract these have to match byte-for-byte. Swift synthesises
+/// its coding keys from property names, so the id keys are `trackID`, not the
+/// `trackId` a camelCase convention would produce. The desktop spent its whole
+/// life sending the latter, which decoded on another desktop and on nothing
+/// else.
 export type ConnectPlayback = {
-  trackId?: string;
+  trackID?: string;
   title?: string;
   artist?: string;
   album?: string;
-  coverArtId?: string;
+  coverArtID?: string;
   isPlaying: boolean;
   position: number;
   duration: number;
@@ -204,22 +210,45 @@ export type ConnectPeer = {
   platform: string;
   playback: ConnectPlayback;
   updatedAt: number;
+  commitment?: ConnectCommitment;
 };
 
 export type ConnectHandoff = {
-  trackIds: string[];
-  currentTrackId: string;
+  trackIDs: string[];
+  currentTrackID: string;
   position: number;
   isPlaying: boolean;
 };
 
 export type ConnectGroup = {
   id: string;
-  leaderId: string;
-  trackId: string;
+  leaderID: string;
+  trackID: string;
   position: number;
   isPlaying: boolean;
   sentAt: number;
+  /// Monotonic within a session, advanced by the leader on every accepted
+  /// change. Absent from a v1 peer's frames, read as 0.
+  revision?: number;
+};
+
+/// What a device is committed to, published on every state frame. This is the
+/// field that makes "an output belongs to one session at a time" checkable.
+export type ConnectCommitment = {
+  sessionID?: string;
+  leaderID?: string;
+  revision: number;
+  /// Set when the device is driving another device's audio instead of its own.
+  controllingPeerID?: string;
+};
+
+/// A follower's answer to a group join. v1 had none, which is why a leader
+/// could report a member it had never reached.
+export type ConnectGroupReply = {
+  sessionID: string;
+  deviceID: string;
+  revision: number;
+  reason?: string;
 };
 
 export type ConnectGroupJoin = {
@@ -227,12 +256,25 @@ export type ConnectGroupJoin = {
   handoff: ConnectHandoff;
 };
 
+/// One round of the four-timestamp exchange that measures a peer's clock.
+/// Answered entirely in Rust, so this type exists for completeness rather than
+/// because the webview ever sees one: `timePing`/`timePong` never reach the
+/// command queue.
+export type ConnectTimeProbe = {
+  id: string;
+  t1: number;
+  t2?: number;
+  t3?: number;
+};
+
 export type ConnectCommand = {
-  name: "play" | "pause" | "toggle" | "previous" | "next" | "seek" | "handoff" | "groupJoin" | "groupSync" | "groupLeave";
+  name: "play" | "pause" | "toggle" | "previous" | "next" | "seek" | "handoff" | "groupJoin" | "groupSync" | "groupLeave" | "groupAccept" | "groupDecline" | "timePing" | "timePong";
   value?: number;
   handoff?: ConnectHandoff;
   group?: ConnectGroup;
   groupJoin?: ConnectGroupJoin;
+  groupReply?: ConnectGroupReply;
+  time?: ConnectTimeProbe;
 };
 
 export type ConnectSnapshot = {
@@ -240,6 +282,9 @@ export type ConnectSnapshot = {
   localDeviceId?: string;
   peers: ConnectPeer[];
   commands: ConnectCommand[];
+  /// Milliseconds to add to this device's clock to read each peer's, keyed by
+  /// peer id. A peer that has not answered a probe yet is absent.
+  clockOffsets?: Record<string, number>;
 };
 
 export type ContextPanelMode = "nowPlaying" | "queue" | "lyrics" | "connect";

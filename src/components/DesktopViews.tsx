@@ -10,6 +10,7 @@ import type {
 import { AlbumCard, ArtistCard, formatDuration, PlaylistCard, TrackTable } from "./Catalog";
 import { MediaArtwork } from "./MediaArtwork";
 import { SmoothRange } from "./RangeSlider";
+import { EqualizerPanel } from "./EqualizerPanel";
 import { useArtworkColor } from "../hooks/useArtworkColor";
 import type { DownloadsController } from "../hooks/useDownloads";
 import {
@@ -205,6 +206,8 @@ export function SettingsView({ contextWidth, downloads, library, onClearDownload
       <SettingToggle checked={settings.hideExplicitContent} label="Hide explicit content" hint="Filters explicit tracks out of browsing. Downloads are never hidden." onChange={(value) => updateSetting("hideExplicitContent", value)} />
       <SettingToggle checked={settings.keepPlayingInBackground} label="Keep playing when the window closes" hint="Closing hides Splice to the tray instead of quitting. Quit always stops playback." onChange={(value) => updateSetting("keepPlayingInBackground", value)} />
     </section>
+
+    <EqualizerPanel onChange={(value) => updateSetting("equalizer", value)} settings={settings.equalizer} />
 
     <section><h2>Audio quality</h2>
       <SettingToggle checked={settings.offlineMode} label="Offline mode" hint="Makes no network requests. Only downloaded music plays." onChange={(value) => updateSetting("offlineMode", value)} />

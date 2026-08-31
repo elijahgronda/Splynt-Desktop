@@ -30,6 +30,20 @@ fn log_message(level: String, message: String) {
     diagnostics::log_detail("webview", detail);
 }
 
+/// A structured event from the webview, keeping its fields as fields.
+///
+/// `log_message` flattens everything into one string, which is right for a
+/// console warning and wrong for a measurement — Splice Connect's drift
+/// numbers are only useful if they can be read back as numbers.
+#[tauri::command]
+fn log_event(event: String, detail: std::collections::HashMap<String, serde_json::Value>) {
+    let mut map = serde_json::Map::new();
+    for (key, value) in detail {
+        map.insert(key, value);
+    }
+    diagnostics::log_detail(&event, map);
+}
+
 /// Where the log lives, so Settings can point at it and the user can send it on.
 #[tauri::command]
 fn diagnostics_path() -> Option<String> {
@@ -222,6 +236,7 @@ pub fn run() {
             if let Ok(data_dir) = app.path().app_data_dir() {
                 connect::set_device_id_path(data_dir.join("connect-device-id"));
             }
+            connect::set_app_handle(app.handle().clone());
 
             let handle = app.handle().clone();
             app.set_menu(build_menu(&handle)?)?;
@@ -271,6 +286,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_background_playback,
             log_message,
+            log_event,
             diagnostics_path,
             reveal_diagnostics,
             open_support_page,

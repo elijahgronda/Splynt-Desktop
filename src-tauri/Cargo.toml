@@ -1,9 +1,7 @@
 [package]
 name = "splice-desktop"
-version = "1.0.0"
+version = "1.0.1"
 description = "Splice music client for macOS, Windows, and Linux"
-license = "GPL-3.0-or-later"
-repository = "https://github.com/elijahgronda/Splice-Desktop"
 authors = ["Splice"]
 edition = "2021"
 

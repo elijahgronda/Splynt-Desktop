@@ -855,6 +855,10 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .player-identity,
 .player-actions { display: flex; align-items: center; gap: 0; min-width: 0; }
 .player-identity { gap: 12px; }
+/* Sized like the artwork + copy pair it replaced, so the like button still sits
+   directly after the title rather than being pushed to the column's far edge. */
+.player-identity__slide { flex: 0 1 auto; min-width: 0; }
+.player-identity__slide .track-slide__layer { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .player-identity__copy { display: grid; gap: 3px; min-width: 0; }
 .player-identity__copy strong,
 .player-identity__copy small,
@@ -865,6 +869,28 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .player-identity__artist { color: #a7a7a7; font-size: 11px; }
 .player-identity__link { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 0; border: 0; color: #fff; background: transparent; cursor: pointer; text-align: left; }
 .player-identity__link:hover { text-decoration: underline; }
+
+/* "Playing on <device>" — the bar's own statement that its transport is
+   driving another Splice device rather than this one's audio. */
+.player-remote {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 150px;
+  min-width: 0;
+  margin-right: 4px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  color: #07190d;
+  background: var(--green);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+.player-remote span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-remote:hover { filter: brightness(1.08); }
+.player-remote > svg { flex: 0 0 auto; }
 
 .player-transport { position: relative; display: grid; gap: 5px; }
 .player-transport__buttons { display: flex; align-items: center; justify-content: center; gap: 17px; }
@@ -1244,6 +1270,22 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .settings-path { overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; line-height: 1.5; }
 .setting-note { margin: 12px 0 0; color: var(--ink-muted); font-size: 11.5px; line-height: 1.5; }
 
+/* Equalizer. The band sliders are native range inputs stood on end with
+   `writing-mode`, which is the standard replacement for the non-standard
+   `appearance: slider-vertical` and keeps the keyboard and screen reader
+   behaviour a custom control would have to reimplement. */
+.equalizer-curve { margin: 6px 0 14px; padding: 8px 10px; border: 1px solid #2c2c2c; border-radius: 8px; background: #161616; }
+.equalizer-curve svg { display: block; width: 100%; height: 64px; }
+.equalizer-curve__zero { stroke: #3a3a3a; stroke-dasharray: 3 3; stroke-width: 1; }
+.equalizer-curve__line { fill: none; stroke: var(--green); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.equalizer-curve--off { opacity: .4; }
+.equalizer-bands { display: flex; justify-content: space-between; gap: 4px; padding: 4px 0 12px; }
+.equalizer-bands--off { opacity: .4; }
+.equalizer-band { display: grid; justify-items: center; gap: 7px; }
+.equalizer-band__slider { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 132px; accent-color: var(--green); }
+.equalizer-band__slider:disabled { cursor: not-allowed; }
+.equalizer-band__label { color: var(--ink-muted); font-size: 10.5px; }
+
 .selection-bar {
   position: fixed;
   z-index: 45;
@@ -1348,11 +1390,46 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .lyric-line--plain { margin: 0; cursor: text; user-select: text; }
 .panel-loading { padding: 40px 8px; color: #888; text-align: center; }
 .group-session { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 9px; width: 100%; margin: 10px 0 14px; padding: 12px; border: 1px solid rgba(43,224,107,.35); border-radius: 8px; color: #fff; background: rgba(43,224,107,.08); text-align: left; cursor: pointer; }
-.group-session--active { color: #07190d; background: var(--green); }
+/* Stopping is not starting. Filled green was the loudest object in the panel
+   and its job was to end the session, outweighing every play control on
+   screen. An active session reads as a quiet, outlined state instead. */
+.group-session--active {
+  color: #fff;
+  border-color: rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+}
+.group-session--active:hover { border-color: rgba(255,255,255,.3); background: rgba(255,255,255,.1); }
+
+/* What this computer is to that device. Sits with the name, not the controls,
+   because it describes the device rather than an action on it. */
+.connect-device__role {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: rgba(255,255,255,.62);
+  background: rgba(255,255,255,.08);
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
 .group-session strong, .group-session small { display: block; }
 .group-session small { margin-top: 3px; color: inherit; opacity: .7; font-size: 10px; }
 
 .full-player {
+  /* Split-view geometry. The artwork keeps its full layout size in both modes
+     and is scaled with a transform, so opening lyrics moves nothing: the two
+     shifts below are just half the width of what sits next to each pane. */
+  --art-full: min(58vh, 522px, calc(100vw - 96px));
+  --split-scale: .66;
+  --pair-gap: 44px;
+  --lyrics-w: min(520px, 40vw);
+  --art-shift: calc((var(--pair-gap) + var(--lyrics-w)) / 2);
+  --lyrics-shift: calc((var(--art-full) * var(--split-scale) + var(--pair-gap)) / 2);
+  --split-ease: cubic-bezier(.32, .72, 0, 1);
+
   position: fixed;
   z-index: 80;
   top: 8px;
@@ -1362,7 +1439,7 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
   overflow: hidden;
   border-radius: 8px;
   color: #fff;
-  background: var(--player-color);
+  background: #121212;
   animation: full-player-in 280ms cubic-bezier(.16, 1, .3, 1) both;
 }
 .full-player__header { position: absolute; z-index: 3; top: 0; right: 0; left: 0; display: flex; align-items: center; justify-content: space-between; min-height: 72px; padding: 16px 20px; pointer-events: none; }
@@ -1382,10 +1459,20 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .full-player__menu { position: absolute; top: calc(100% + 7px); right: 0; display: grid; width: 220px; padding: 5px; border: 1px solid rgba(255,255,255,.12); border-radius: 7px; background: #282828; box-shadow: 0 18px 50px rgba(0,0,0,.5); }
 .full-player__menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 4px; color: #eee; background: transparent; cursor: pointer; text-align: left; }
 .full-player__menu button:hover { background: rgba(255,255,255,.1); }
-.full-player__scroll { height: 100%; overflow: auto; overscroll-behavior: contain; scrollbar-color: rgba(255,255,255,.35) transparent; background: linear-gradient(180deg, var(--player-color) 0, var(--player-color) 72%, #121212 100%); }
-.full-player__hero { display: grid; place-items: center; min-height: 100%; padding: 78px 48px 46px; }
-.full-player__art { width: min(58vh, 522px, calc(100vw - 96px)); height: min(58vh, 522px, calc(100vw - 96px)); border-radius: 8px; box-shadow: 0 24px 75px rgba(0,0,0,.34); }
-.full-player__details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 1120px; margin: 0 auto; padding: 48px 32px 80px; background: #121212; }
+.full-player__scroll { height: 100%; overflow: auto; overscroll-behavior: contain; scrollbar-color: rgba(255,255,255,.35) transparent; background: #121212; }
+
+/* The canvas — tint, artwork and lyrics together — is what slides on a skip, so
+   the whole first viewport travels as one card rather than the artwork alone. */
+.full-player__stage { position: relative; min-height: 100%; overflow: hidden; }
+.full-player__canvas { position: relative; display: grid; height: 100%; background-color: var(--player-color); transition: background-color 420ms ease; }
+.full-player__canvas::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 130px; background: linear-gradient(180deg, rgba(18,18,18,0), #121212); pointer-events: none; }
+.full-player__split { position: relative; z-index: 1; display: grid; place-items: center; min-height: 0; padding: 78px 48px 46px; }
+.full-player__hero,
+.full-player__lyrics-surface { grid-area: 1 / 1; }
+.full-player__hero { display: grid; place-items: center; }
+.full-player__art { width: var(--art-full); height: var(--art-full); border-radius: 8px; box-shadow: 0 24px 75px rgba(0,0,0,.34); transform-origin: center; transition: transform 520ms var(--split-ease), opacity 260ms ease; will-change: transform; }
+.full-player--lyrics .full-player__art { transform: translate3d(calc(var(--art-shift) * -1), 0, 0) scale(var(--split-scale)); }
+.full-player__details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; max-width: 1120px; margin: 0 auto; padding: 48px 32px 80px; background: #121212; animation: full-player-details-in 340ms ease both; }
 .full-player__detail-card { position: relative; min-height: 210px; padding: 24px; border-radius: 10px; background: #1d1d1d; }
 .full-player__detail-card > svg { margin-bottom: 24px; color: #b3b3b3; }
 .full-player__detail-card h2 { margin: 7px 0 8px; font-size: clamp(22px, 2.5vw, 32px); }
@@ -1398,12 +1485,64 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .full-player__detail-card dd { margin: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .full-player__detail-card--album { display: grid; grid-template-columns: 150px minmax(0, 1fr); align-items: center; gap: 22px; }
 .full-player__detail-art { width: 150px; height: 150px; border-radius: 7px; }
-.full-player__lyrics-surface { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(920px, calc(100vw - 64px)); height: 100%; min-height: 0; margin: 0 auto; padding-top: 76px; overflow: hidden; }
-.full-player__lyrics-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px 12px; }
+.full-player__lyrics-surface {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: var(--lyrics-w);
+  height: var(--art-full);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .22);
+  opacity: 0;
+  transform: translate3d(calc(var(--lyrics-shift) + 56px), 0, 0);
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 520ms var(--split-ease), visibility 0s linear 520ms;
+  will-change: transform;
+}
+.full-player--lyrics .full-player__lyrics-surface {
+  opacity: 1;
+  transform: translate3d(var(--lyrics-shift), 0, 0);
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 260ms ease 140ms, transform 520ms var(--split-ease), visibility 0s;
+}
+.full-player__lyrics-heading { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 10px; }
 .full-player__lyrics-heading h2 { margin: 4px 0 0; font-size: 22px; }
 .full-player__lyrics-heading button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%; color: #ddd; background: rgba(0,0,0,.18); cursor: pointer; }
 .full-player__lyrics-empty { display: grid; place-items: center; min-height: 0; padding: 30px; color: rgba(255,255,255,.65); text-align: center; }
 @keyframes full-player-in { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+@keyframes full-player-details-in { from { opacity: 0; transform: translate3d(0, 10px, 0); } to { opacity: 1; transform: none; } }
+
+/* Track-change cross-slide. The leaving layer holds the previous track's
+   rendered content and is overlaid on the incoming one, so the two travel past
+   each other instead of the copy snapping over in place. */
+.track-slide { position: relative; min-width: 0; }
+.track-slide__layer { min-width: 0; }
+.track-slide__layer--leaving { position: absolute; top: 0; right: 0; bottom: 0; left: 0; pointer-events: none; }
+
+.track-slide--compact { --slide-shift: 26px; overflow: hidden; padding: 4px 0; margin: -4px 0; }
+.track-slide--compact[data-slide="1"] > .track-slide__layer--current { animation: track-slide-enter-forward 360ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--compact[data-slide="1"] > .track-slide__layer--leaving { animation: track-slide-leave-forward 360ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--compact[data-slide="-1"] > .track-slide__layer--current { animation: track-slide-enter-back 360ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--compact[data-slide="-1"] > .track-slide__layer--leaving { animation: track-slide-leave-back 360ms cubic-bezier(.32, .72, 0, 1) both; }
+
+.track-slide--cover { display: grid; }
+.track-slide--cover > .track-slide__layer { grid-area: 1 / 1; will-change: transform; }
+.track-slide--cover[data-slide="1"] > .track-slide__layer--current { animation: track-cover-enter-forward 520ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--cover[data-slide="1"] > .track-slide__layer--leaving { animation: track-cover-leave-forward 520ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--cover[data-slide="-1"] > .track-slide__layer--current { animation: track-cover-enter-back 520ms cubic-bezier(.32, .72, 0, 1) both; }
+.track-slide--cover[data-slide="-1"] > .track-slide__layer--leaving { animation: track-cover-leave-back 520ms cubic-bezier(.32, .72, 0, 1) both; }
+
+@keyframes track-slide-enter-forward { from { opacity: 0; transform: translate3d(var(--slide-shift), 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+@keyframes track-slide-leave-forward { from { opacity: 1; transform: translate3d(0, 0, 0); } to { opacity: 0; transform: translate3d(calc(var(--slide-shift) * -1), 0, 0); } }
+@keyframes track-slide-enter-back { from { opacity: 0; transform: translate3d(calc(var(--slide-shift) * -1), 0, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+@keyframes track-slide-leave-back { from { opacity: 1; transform: translate3d(0, 0, 0); } to { opacity: 0; transform: translate3d(var(--slide-shift), 0, 0); } }
+@keyframes track-cover-enter-forward { from { transform: translate3d(100%, 0, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes track-cover-leave-forward { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-100%, 0, 0); } }
+@keyframes track-cover-enter-back { from { transform: translate3d(-100%, 0, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes track-cover-leave-back { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(100%, 0, 0); } }
 
 .context-menu-scrim { position: fixed; z-index: 90; inset: 0; border: 0; background: transparent; }
 .context-menu { position: fixed; z-index: 91; display: grid; width: 260px; max-height: 410px; padding: 5px; overflow: auto; border: 1px solid rgba(255,255,255,.09); border-radius: 7px; background: #282828; box-shadow: 0 18px 50px rgba(0,0,0,.55); }
@@ -1590,20 +1729,36 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .full-lyrics--small .full-lyrics__line { font-size: 25px; }
 .full-lyrics--large .full-lyrics__line { font-size: 36px; }
 
+/* The expanded player's lyrics now share the canvas with the artwork rather
+   than replacing it, so they read in a column roughly half the old width. */
+.full-player__lyrics-surface .full-lyrics { padding: calc(var(--art-full) * .42) 22px calc(var(--art-full) * .5); }
+.full-player__lyrics-surface .full-lyrics__line { font-size: 26px; }
+.full-player__lyrics-surface .full-lyrics--small .full-lyrics__line { font-size: 21px; }
+.full-player__lyrics-surface .full-lyrics--large .full-lyrics__line { font-size: 31px; }
+
 @media (max-width: 1050px) {
   .full-player__details { grid-template-columns: 1fr; max-width: 720px; }
   .full-lyrics__line { font-size: 26px; }
+}
+@media (max-width: 1040px) {
+  .full-player {
+    --lyrics-w: min(620px, calc(100vw - 96px));
+    --art-shift: 0px;
+    --lyrics-shift: 0px;
+  }
+  .full-player--lyrics .full-player__art { opacity: 0; transform: scale(.92); }
+  .full-player--lyrics .full-player__hero { pointer-events: none; }
 }
 @media (max-width: 760px) {
   .full-player__context { display: none; }
   .full-player__header { justify-content: flex-end; padding-inline: 12px; }
   .full-player__header-actions { gap: 1px; }
   .full-player__header-actions > button:nth-of-type(2) { display: none; }
-  .full-player__hero { padding-inline: 24px; }
+  .full-player__split { padding-inline: 24px; }
   .full-player__details { padding-inline: 16px; }
   .full-player__detail-card--album { grid-template-columns: 96px minmax(0, 1fr); }
   .full-player__detail-art { width: 96px; height: 96px; }
-  .full-player__lyrics-surface { width: calc(100vw - 32px); }
+  .full-player { --lyrics-w: calc(100vw - 48px); }
 }
 
 /* Persistent Spotify-familiar top search: history/title, search, and account

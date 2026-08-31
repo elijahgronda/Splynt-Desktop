@@ -185,6 +185,69 @@ describe("Splice Desktop authentication", () => {
     expect(screen.queryByRole("heading", { name: "Connect to your server" })).not.toBeInTheDocument();
   });
 
+  it("drives another device from the player bar once playback moves there", async () => {
+    const song = { id: "server-song-1", title: "Server Song", artist: "Server Artist", album: "Server Album", duration: 200, coverArt: "cover" };
+    const album = { id: "server-album-1", title: "Server Album", artist: "Server Artist", year: 2026 };
+    const connected = {
+      server: { displayHost: "music.example.test", username: "elijah", serverType: "navidrome" },
+      albums: [album],
+    };
+    const peer = {
+      id: "peer-tv", name: "Living Room", platform: "tvOS",
+      playback: { trackID: "server-song-1", title: "Server Song", artist: "Server Artist", album: "Server Album", coverArtID: "cover", isPlaying: true, position: 12, duration: 200 },
+      updatedAt: 0,
+    };
+    const sent: { peerId: string; command: { name: string; value?: number } }[] = [];
+    invoke.mockImplementation((command: string, args?: Record<string, unknown>) => {
+      if (command === "restore_session") return Promise.resolve(null);
+      if (command === "connect_server") return Promise.resolve(connected);
+      if (command === "load_home") return Promise.resolve({ newest: [album], recent: [], frequent: [], random: [] });
+      if (command === "load_library") return Promise.resolve({ albums: [album], artists: [], playlists: [], starredSongs: [], starredAlbums: [], starredArtists: [] });
+      if (command === "get_album") return Promise.resolve({ ...album, songs: [song], duration: song.duration });
+      if (command === "media_url") return Promise.resolve("splice-media://localhost/media?id=server-song-1");
+      if (command === "connect_snapshot") return Promise.resolve({ isAvailable: true, localDeviceId: "this-desktop", peers: [peer], commands: [] });
+      if (command === "send_connect_command") {
+        sent.push(args as { peerId: string; command: { name: string } });
+        return Promise.resolve(undefined);
+      }
+      return Promise.resolve(undefined);
+    });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText("Server address"), { target: { value: "https://music.example.test" } });
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "elijah" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    await screen.findByRole("navigation", { name: "Main navigation" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Play Server Album" }));
+    expect(await screen.findByText("Server Song")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Splice Connect devices" }));
+    const devices = await screen.findByRole("complementary", { name: "Devices" });
+    fireEvent.click(await within(devices).findByRole("button", { name: "Play on Living Room" }));
+
+    // The bar now says where the audio is, and its transport addresses that peer.
+    const bar = screen.getByLabelText("Player");
+    await within(bar).findByRole("button", { name: /Playing on Living Room/ });
+    expect(sent.map((entry) => entry.command.name)).toContain("handoff");
+
+    sent.length = 0;
+    fireEvent.click(within(bar).getByRole("button", { name: "Next" }));
+    fireEvent.click(within(bar).getByRole("button", { name: "Previous" }));
+    await waitFor(() => expect(sent.map((entry) => entry.command.name)).toEqual(["next", "previous"]));
+    expect(sent.every((entry) => entry.peerId === "peer-tv")).toBe(true);
+
+    // Play state is the peer's, not this device's silent audio element.
+    expect(within(bar).getByRole("button", { name: "Pause" })).toBeInTheDocument();
+
+    // Taking it back ends the mode. The button says which computer "here" is:
+    // it used to sit beside "Play on Living Room" at equal weight, with the
+    // two words pointing at different machines.
+    fireEvent.click(within(devices).getByRole("button", { name: "Play on this computer" }));
+    await waitFor(() => expect(within(bar).queryByRole("button", { name: /Playing on Living Room/ })).not.toBeInTheDocument());
+  });
+
   it("keeps the persistent player mounted across panels and expanded playback", async () => {
     const album = { id: "server-album-1", title: "Server Album", artist: "Server Artist", year: 2026 };
     const song = { id: "server-song-1", title: "Server Song", artist: "Server Artist", album: album.title, albumId: album.id, duration: 225 };

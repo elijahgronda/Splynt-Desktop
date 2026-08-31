@@ -13,6 +13,8 @@ import { useDialogFocus } from "../hooks/useDialogFocus";
 import { dedupeAlbums, dedupeArtists, dedupeSearchResults, parseExternalSource, trackMetadataKey } from "../lib/externalSource";
 import { isExternalLiked, mergeExternalLikes, setExternalLiked } from "../lib/externalLikes";
 import { cacheDetail, cachedDetail, cacheHome, cacheLibraryOverview, cachedDataFor } from "../lib/persistence";
+import { driftCorrection, projectedGroupPosition } from "../lib/connectClock";
+import { endGroupDiagnostics, logConnectEvent, noteGroupSample, noteGroupTrackChange } from "../lib/connectDiagnostics";
 import { readRecentCollections, rememberRecentCollection } from "../lib/recentCollections";
 import { useSettings } from "../lib/settings";
 import type {
@@ -38,7 +40,12 @@ type AuthenticatedShellProps = {
 };
 type DetailState = AlbumDetail | PlaylistDetail | ArtistDetail;
 type LibraryFilter = "playlists" | "artists" | "albums";
-type LocalGroupSession = { id: string; leaderId: string; memberIds: string[] };
+type LocalGroupSession = { id: string; leaderID: string; memberIDs: string[] };
+
+/// How long a leader waits for devices to answer an invitation. Long enough
+/// for a follower to resolve a cold track against the server, short enough
+/// that a listener does not think the button is broken.
+const GROUP_JOIN_TIMEOUT_MS = 3_000;
 
 const emptySearch: SearchResults = { songs: [], albums: [], artists: [] };
 const emptyLyrics: LyricsResult = { synced: false, lines: [] };
@@ -84,6 +91,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
   const playback = usePlayback(profileScope, {
     shuffleMode: settings.shuffleMode,
     crossfadeSeconds: settings.crossfadeSeconds,
+    equalizer: settings.equalizer,
     gapless: settings.gapless,
     autoplay: settings.autoplay,
     onQueueExhausted: (last) => queueExhausted.current(last),
@@ -127,10 +135,35 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
   const [connectState, setConnectState] = useState<ConnectSnapshot>({ isAvailable: false, peers: [], commands: [] });
   const connectRef = useRef(connectState);
   connectRef.current = connectState;
+  /// Measured clock offsets by peer id, in milliseconds, from the Rust side's
+  /// probe. Held in a ref rather than read off `connectState` because the
+  /// commands in a snapshot are applied in the same tick that delivered it,
+  /// before React has published the new state.
+  const clockOffsets = useRef<Record<string, number>>({});
+  /// The peer this device is currently acting as a remote for. iOS has always
+  /// had this mode (`connectedPeerID` in PlayerEngine); the desktop sent a
+  /// handoff, paused itself, and then its own transport drove nothing, so the
+  /// only way to control the other device was three small buttons in a panel.
+  const [remoteDevice, setRemoteDevice] = useState<{ id: string; name: string }>();
+  const remoteRef = useRef(remoteDevice);
+  remoteRef.current = remoteDevice;
   const [groupSession, setGroupSession] = useState<LocalGroupSession>();
   const groupRef = useRef(groupSession);
   groupRef.current = groupSession;
   const lastGroupTrack = useRef<string | undefined>(undefined);
+  /// The invitation this device is waiting on answers for. A member is a
+  /// device that came back and said it is rendering the session, not one this
+  /// device managed to write a frame at: a stale-but-open socket accepts
+  /// writes long after the peer behind it stopped listening, which is how a
+  /// session used to report a member it had never reached.
+  const pendingInvite = useRef<{
+    sessionId: string; awaiting: Set<string>; accepted: string[]; declined: Map<string, string>;
+  } | undefined>(undefined);
+  /// The session revision this device has applied, as follower or leader.
+  const groupRevision = useRef(0);
+  /// Consecutive failed sends per member. A member that cannot be reached three
+  /// times running is dropped from the session rather than addressed forever.
+  const groupSendFailures = useRef(new Map<string, number>());
   const [sidebarWidth, setSidebarWidth] = useState(() => Math.max(72, Math.min(420, readNumber("splice.sidebar.width", 280))));
   const [trackMenu, setTrackMenu] = useState<TrackMenuState>();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -523,82 +556,291 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
     return () => dispose?.();
   }, [navigate, openPanel]);
 
-  const applyHandoff = useCallback(async (handoff: NonNullable<ConnectCommand["handoff"]>, label = "Splice Connect") => {
-    const active = await invoke<SongSummary[]>("get_songs_by_ids", { ids: [handoff.currentTrackId] });
+  const applyHandoff = useCallback(async (handoff: NonNullable<ConnectCommand["handoff"]>, label = "Splice Connect", startAt?: number) => {
+    const active = await invoke<SongSummary[]>("get_songs_by_ids", { ids: [handoff.currentTrackID] });
     if (!active[0]) throw new Error("The active track was not available on this server.");
-    playbackRef.current.playQueue(active, 0, handoff.isPlaying, handoff.position, label);
-    if (handoff.trackIds.length <= 1) return;
+    playbackRef.current.playQueue(active, 0, handoff.isPlaying, startAt ?? handoff.position, label);
+    if (handoff.trackIDs.length <= 1) return;
     const expectedTrackId = active[0].id;
-    const songs = await invoke<SongSummary[]>("get_songs_by_ids", { ids: handoff.trackIds.slice(0, 1000) });
+    const songs = await invoke<SongSummary[]>("get_songs_by_ids", { ids: handoff.trackIDs.slice(0, 1000) });
     if (playbackRef.current.current?.id === expectedTrackId) {
       playbackRef.current.replaceQueuePreservingCurrent(songs);
     }
   }, []);
 
+  const applyConnectCommand = useCallback(async (command: ConnectCommand) => {
+    const controller = playbackRef.current;
+    const leaderOffset = (leaderID: string) => clockOffsets.current[leaderID];
+
+    if (command.name === "groupAccept" || command.name === "groupDecline") {
+      const reply = command.groupReply;
+      const invite = pendingInvite.current;
+      if (!reply || !invite || invite.sessionId !== reply.sessionID) return;
+      if (!invite.awaiting.delete(reply.deviceID)) return;
+      if (command.name === "groupAccept") invite.accepted.push(reply.deviceID);
+      else invite.declined.set(reply.deviceID, reply.reason ?? "declined");
+      return;
+    }
+    if (command.name === "play" && !controller.isPlaying) return void await controller.toggle();
+    if (command.name === "pause" && controller.isPlaying) return void await controller.toggle();
+    if (command.name === "toggle") return void await controller.toggle();
+    if (command.name === "previous") return controller.previous();
+    if (command.name === "next") return controller.next();
+    if (command.name === "seek" && command.value !== undefined) return controller.seek(command.value);
+    // An incoming transfer means this device is the one playing now, so it
+    // stops being a remote for anyone else — otherwise the bar would keep
+    // claiming "Playing on <device>" over its own audio.
+    if (command.name === "handoff" && command.handoff) {
+      setRemoteDevice(undefined);
+      return void await applyHandoff(command.handoff);
+    }
+
+    if (command.name === "groupJoin" && command.groupJoin) {
+      const { group, handoff } = command.groupJoin;
+      const localId = connectRef.current.localDeviceId ?? "";
+      /// A join this device will not honour has to say so. Returning silently
+      /// left the leader unable to tell a refusal from a frame that never
+      /// arrived, so it kept addressing a device that never joined.
+      const decline = (reason: string) => {
+        logConnectEvent("group_declined", { session: group.id, reason });
+        void sendGroupFrame(group.leaderID, {
+          name: "groupDecline",
+          groupReply: { sessionID: group.id, deviceID: localId, revision: group.revision ?? 0, reason },
+        });
+      };
+      // An output belongs to one session at a time.
+      const existing = groupRef.current;
+      if (existing && existing.id !== group.id) return decline("in another session");
+      setRemoteDevice(undefined);
+      // Start where the leader's clock has reached by now, not where it was
+      // when the frame left. iOS has always done this; the desktop used the
+      // raw handoff position and so began every group session — and, because
+      // the leader resends a join at each track change, every track — already
+      // behind by the whole transit plus the time spent resolving the track.
+      const offset = leaderOffset(group.leaderID);
+      const joinAt = projectedGroupPosition(group, offset);
+      groupRevision.current = group.revision ?? 0;
+      logConnectEvent("group_joined", {
+        session: group.id,
+        startAt: Math.round(joinAt * 1000) / 1000,
+        skew: Date.now() - group.sentAt,
+        offset: offset === undefined ? "none" : Math.round(offset * 10) / 10,
+        queued: handoff.trackIDs.length,
+      });
+      try {
+        await applyHandoff(handoff, "Group Session", joinAt);
+      } catch {
+        // The track could not be resolved here. v1 let this throw out of the
+        // command loop, which both lost every command behind it and told the
+        // leader nothing.
+        return decline("track unresolved");
+      }
+      setGroupSession({ id: group.id, leaderID: group.leaderID, memberIDs: [] });
+      setPanelMode("connect");
+      // Only now is this device rendering the session, so only now may it
+      // claim membership.
+      void sendGroupFrame(group.leaderID, {
+        name: "groupAccept",
+        groupReply: { sessionID: group.id, deviceID: localId, revision: group.revision ?? 0 },
+      });
+      return;
+    }
+
+    if (command.name === "groupSync" && command.group && groupRef.current?.id === command.group.id) {
+      const group = command.group;
+      // A revision older than the one already applied is a controller that has
+      // not caught up. Honouring it would undo what the session did since.
+      const revision = group.revision ?? 0;
+      if (revision < groupRevision.current) {
+        logConnectEvent("group_stale_frame", { session: group.id, frame: revision, applied: groupRevision.current });
+        return;
+      }
+      groupRevision.current = revision;
+      const offset = leaderOffset(group.leaderID);
+      const target = projectedGroupPosition(group, offset);
+      const skew = Date.now() - group.sentAt;
+      if (controller.current?.id !== group.trackID) {
+        const trackIndex = controller.queue.findIndex((song) => song.id === group.trackID);
+        // The leader has moved to a track this device does not hold yet. Wait
+        // for the groupJoin that carries it. Falling through here used to seek
+        // whatever was playing locally to the leader's position in a different
+        // song, which is what made a follower on the wrong track jump around.
+        if (trackIndex < 0) {
+          logConnectEvent("group_track_missing", { session: group.id, track: group.trackID });
+          return;
+        }
+        noteGroupTrackChange(group.id);
+        controller.endConvergence();
+        controller.playQueue(controller.queue, trackIndex, group.isPlaying, target, "Group Session");
+        return;
+      }
+      // Both playheads are read exactly and the leader's clock is measured, so
+      // this is real drift rather than two stale samples plus whatever the two
+      // wall clocks disagree by. That is what makes correcting by rate worth
+      // doing: v1's whole 1.25 s window now converges silently instead.
+      const drift = controller.positionNow() - target;
+      const correction = driftCorrection(drift);
+      if (correction.kind === "converge") {
+        controller.convergeRate(correction.rate, correction.seconds);
+      } else {
+        // Inside the deadband, a running nudge has done its job and normal
+        // speed resumes now rather than at its deadline.
+        controller.endConvergence();
+        if (correction.kind === "seek") controller.seek(target);
+      }
+      noteGroupSample(group.id, { drift, skew, offset, correction: correction.kind });
+      if (group.isPlaying !== controller.isPlaying) {
+        if (!group.isPlaying) controller.endConvergence();
+        await controller.toggle();
+      }
+      return;
+    }
+
+    if (command.name === "groupLeave") {
+      controller.endConvergence();
+      groupRevision.current = 0;
+      endGroupDiagnostics("leader-ended");
+      logConnectEvent("group_left", { session: command.group?.id ?? "unknown" });
+      setGroupSession(undefined);
+    }
+  }, [applyHandoff]);
+
+  const applyConnectCommandRef = useRef(applyConnectCommand);
+  applyConnectCommandRef.current = applyConnectCommand;
+
   useEffect(() => {
     let active = true;
     let inFlight = false;
+    let missed = false;
     async function poll() {
-      if (inFlight) return;
+      if (inFlight) { missed = true; return; }
       inFlight = true;
       try {
-        const snapshot = await invoke<ConnectSnapshot>("connect_snapshot");
+        let snapshot: ConnectSnapshot | undefined;
+        try {
+          snapshot = await invoke<ConnectSnapshot>("connect_snapshot");
+        } catch {
+          // Only a failed snapshot means Connect itself is unreachable. A
+          // command that could not be applied used to land here too and put
+          // "Local discovery unavailable" on a panel that was working fine.
+          if (active) setConnectState((value) => ({ ...value, isAvailable: false, commands: [] }));
+          return;
+        }
         if (!active) return;
+        // A snapshot that came back without its arrays is a tick to skip, not
+        // evidence the network went away. The previous catch-all swallowed
+        // this shape silently and reported Connect as unavailable instead.
+        if (!snapshot || !Array.isArray(snapshot.peers)) return;
+        clockOffsets.current = snapshot.clockOffsets ?? {};
         setConnectState({ ...snapshot, commands: [] });
-        for (const command of snapshot.commands) {
-          const controller = playbackRef.current;
-          if (command.name === "play" && !controller.isPlaying) await controller.toggle();
-          else if (command.name === "pause" && controller.isPlaying) await controller.toggle();
-          else if (command.name === "toggle") await controller.toggle();
-          else if (command.name === "previous") controller.previous();
-          else if (command.name === "next") controller.next();
-          else if (command.name === "seek" && command.value !== undefined) controller.seek(command.value);
-          else if (command.name === "handoff" && command.handoff) await applyHandoff(command.handoff);
-          else if (command.name === "groupJoin" && command.groupJoin) {
-            await applyHandoff(command.groupJoin.handoff, "Group Session");
-            setGroupSession({ id: command.groupJoin.group.id, leaderId: command.groupJoin.group.leaderId, memberIds: [] });
-            setPanelMode("connect");
-          } else if (command.name === "groupSync" && command.group && groupRef.current?.id === command.group.id) {
-            const transit = Math.min(2, Math.max(0, Date.now() - command.group.sentAt) / 1000);
-            const target = command.group.position + (command.group.isPlaying ? transit : 0);
-            const trackIndex = controller.queue.findIndex((song) => song.id === command.group!.trackId);
-            if (trackIndex >= 0 && controller.current?.id !== command.group.trackId) controller.playQueue(controller.queue, trackIndex, command.group.isPlaying, target, "Group Session");
-            else {
-              if (Math.abs(controller.position - target) > 1.25) controller.seek(target);
-              if (command.group.isPlaying !== controller.isPlaying) await controller.toggle();
-            }
-          } else if (command.name === "groupLeave") {
-            setGroupSession(undefined);
+        for (const command of snapshot.commands ?? []) {
+          if (!active) break;
+          try {
+            await applyConnectCommandRef.current(command);
+          } catch (reason) {
+            // The Rust side has already drained the batch, so a throw that
+            // escaped this loop lost every command behind it for good.
+            setPageError(reasonMessage(reason, "A command from another device could not be applied."));
           }
         }
-      } catch {
-        if (active) setConnectState((value) => ({ ...value, isAvailable: false, commands: [] }));
       } finally {
         inFlight = false;
+        if (missed && active) { missed = false; void poll(); }
       }
     }
     void poll();
     const interval = window.setInterval(poll, 1000);
-    return () => { active = false; window.clearInterval(interval); };
-  }, [applyHandoff]);
+    // The reader thread knows the moment a command frame lands. Waiting for the
+    // next tick cost every remote action up to a second before it was even
+    // seen; the snapshot drain stays the delivery path so nothing is lost.
+    let disposeEvent: (() => void) | undefined;
+    void listen("connect-commands-pending", () => void poll())
+      .then((unlisten) => { if (active) disposeEvent = unlisten; else unlisten(); })
+      .catch(() => undefined);
+    return () => { active = false; window.clearInterval(interval); disposeEvent?.(); };
+  }, []);
 
   useEffect(() => {
     function publish() {
       const controller = playbackRef.current;
-      void invoke("publish_connect_playback", { playback: {
-        trackId: controller.current?.id, title: controller.current?.title, artist: controller.current?.artist,
-        album: controller.current?.album, coverArtId: controller.current?.coverArt, isPlaying: controller.isPlaying,
-        position: controller.position, duration: controller.duration,
-      } }).catch(() => undefined);
+      const session = groupRef.current;
+      void invoke("publish_connect_playback", {
+        playback: {
+          trackID: controller.current?.id, title: controller.current?.title, artist: controller.current?.artist,
+          album: controller.current?.album, coverArtID: controller.current?.coverArt, isPlaying: controller.isPlaying,
+          position: controller.positionNow(), duration: controller.duration,
+        },
+        // Published so another device can see, before it tries to take this
+        // one, that it is already rendering a session or already driving a
+        // third device.
+        commitment: {
+          sessionID: session?.id,
+          leaderID: session?.leaderID,
+          revision: groupRevision.current,
+          controllingPeerID: remoteRef.current?.id,
+        },
+      }).catch(() => undefined);
     }
     publish();
     const interval = window.setInterval(publish, 2000);
     return () => window.clearInterval(interval);
   }, []);
 
+  /// What the player bar and expanded player actually drive.
+  ///
+  /// While this device is a remote, the transport sends absolute commands to
+  /// the peer and the play state comes from the peer's published clock, but the
+  /// track identity stays local — it is the same queue, deliberately held here
+  /// in step. Everything that must keep touching real local audio (the Connect
+  /// publish loop, the group leader clock) uses `playbackRef` and is unaffected.
+  const remotePeer = remoteDevice ? connectState.peers.find((peer) => peer.id === remoteDevice.id) : undefined;
+  const transport = useMemo(() => {
+    if (!remoteDevice) return playback;
+    const send = (command: ConnectCommand) => {
+      void invoke("send_connect_command", { peerId: remoteDevice.id, command })
+        .catch(() => setPageError(`Splice could not reach ${remoteDevice.name}.`));
+    };
+    return {
+      ...playback,
+      isPlaying: remotePeer?.playback.isPlaying ?? false,
+      position: remotePeer?.playback.position ?? playback.position,
+      duration: remotePeer?.playback.duration || playback.duration,
+      toggle: async () => send({ name: "toggle" }),
+      next: () => send({ name: "next" }),
+      previous: () => send({ name: "previous" }),
+      seek: (value: number) => send({ name: "seek", value }),
+    };
+  }, [playback, remoteDevice, remotePeer]);
+
+  /// A device that has gone quiet on the network cannot be driven any more.
+  /// The Rust side already waits twelve seconds before expiring a peer, so
+  /// this does not fire on a momentary gap.
+  useEffect(() => {
+    if (!remoteDevice || !connectState.isAvailable) return;
+    if (connectState.peers.some((peer) => peer.id === remoteDevice.id)) return;
+    logConnectEvent("remote_end", { peer: remoteRef.current?.id ?? "unknown", reason: "peer left the network" });
+    setRemoteDevice(undefined);
+    setToast(`${remoteDevice.name} is no longer on this network`);
+  }, [connectState.isAvailable, connectState.peers, remoteDevice]);
+
   async function sendRemote(peerId: string, command: ConnectCommand) {
     try { await invoke("send_connect_command", { peerId, command }); }
     catch (reason) { setPageError(reasonMessage(reason, "That device is no longer available.")); }
+  }
+
+  /// The same send without the error banner, for frames this device emits on a
+  /// timer rather than because someone pressed something. The group leader sends
+  /// once a second per member; routing that through `sendRemote` put a visible
+  /// error on screen every second for as long as a member stayed unreachable.
+  async function sendGroupFrame(peerId: string, command: ConnectCommand) {
+    try {
+      await invoke("send_connect_command", { peerId, command });
+      groupSendFailures.current.delete(peerId);
+      return true;
+    } catch {
+      groupSendFailures.current.set(peerId, (groupSendFailures.current.get(peerId) ?? 0) + 1);
+      return false;
+    }
   }
 
   useEffect(() => {
@@ -606,16 +848,26 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       const group = groupRef.current;
       const controller = playbackRef.current;
       const localId = connectRef.current.localDeviceId;
-      if (!group || group.leaderId !== localId || !controller.current) return;
-      const state: ConnectGroup = { id: group.id, leaderId: group.leaderId, trackId: controller.current.id, position: controller.position, isPlaying: controller.isPlaying, sentAt: Date.now() };
+      if (!group || group.leaderID !== localId || !controller.current) return;
       const trackKey = `${group.id}:${controller.current.id}`;
-      if (trackKey !== lastGroupTrack.current) {
-        const handoff = { trackIds: controller.queue.slice(0, 1000).map((song) => song.id), currentTrackId: controller.current.id, position: controller.position, isPlaying: controller.isPlaying };
-        for (const peerId of group.memberIds) void sendRemote(peerId, { name: "groupJoin", groupJoin: { group: state, handoff } });
-        lastGroupTrack.current = trackKey;
-      } else {
-        for (const peerId of group.memberIds) void sendRemote(peerId, { name: "groupSync", group: state });
-      }
+      // A track change is an accepted state change, so it advances the
+      // session. Sync frames in between carry the revision they belong to.
+      if (trackKey !== lastGroupTrack.current) groupRevision.current += 1;
+      const state: ConnectGroup = { id: group.id, leaderID: group.leaderID, trackID: controller.current.id, position: controller.positionNow(), isPlaying: controller.isPlaying, sentAt: Date.now(), revision: groupRevision.current };
+      const frame: ConnectCommand = trackKey !== lastGroupTrack.current
+        ? { name: "groupJoin", groupJoin: { group: state, handoff: { trackIDs: controller.queue.slice(0, 1000).map((song) => song.id), currentTrackID: controller.current.id, position: state.position, isPlaying: controller.isPlaying } } }
+        : { name: "groupSync", group: state };
+      if (frame.name === "groupJoin") lastGroupTrack.current = trackKey;
+      void Promise.all(group.memberIDs.map((peerId) => sendGroupFrame(peerId, frame))).then((results) => {
+        const lost = group.memberIDs.filter((peerId, index) => !results[index] && (groupSendFailures.current.get(peerId) ?? 0) >= 3);
+        if (!lost.length) return;
+        for (const peerId of lost) groupSendFailures.current.delete(peerId);
+        logConnectEvent("group_member_dropped", { session: group.id, dropped: lost.length });
+        setGroupSession((value) => value && value.id === group.id
+          ? { ...value, memberIDs: value.memberIDs.filter((peerId) => !lost.includes(peerId)) }
+          : value);
+        setToast(lost.length === 1 ? "A device left the group session" : `${lost.length} devices left the group session`);
+      });
     }, 1000);
     return () => window.clearInterval(interval);
   }, []);
@@ -658,11 +910,34 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
     return () => window.removeEventListener("online", onOnline);
   }, [connection.status, retryConnection, settings.offlineMode]);
 
+  /// Every user-initiated play routes through here so that "playing on another
+  /// device" behaves the way it does on iOS: the remote device receives the new
+  /// queue, and this device loads the same queue *paused*. Keeping the local
+  /// queue in step is what lets the player bar, the queue view and "Play here"
+  /// stay truthful about what is playing while the audio is somewhere else.
+  const startPlayback = useCallback((songs: SongSummary[], index: number, label: string, position = 0) => {
+    if (!songs.length) return;
+    const safeIndex = Math.max(0, Math.min(index, songs.length - 1));
+    const remote = remoteRef.current;
+    playbackRef.current.playQueue(songs, safeIndex, !remote, position, label);
+    if (!remote) return;
+    void invoke("send_connect_command", {
+      peerId: remote.id,
+      command: { name: "handoff", handoff: {
+        trackIDs: songs.slice(0, 1000).map((song) => song.id),
+        currentTrackID: songs[safeIndex].id,
+        position,
+        isPlaying: true,
+      } },
+    }).catch(() => setPageError(`Splice could not reach ${remote.name}.`));
+    setToast(`Playing on ${remote.name}`);
+  }, []);
+
   const playCollection = useCallback((songs: SongSummary[], label: string) => {
     if (!songs.length) return;
     const start = playbackRef.current.shuffle ? Math.floor(Math.random() * songs.length) : 0;
-    playbackRef.current.playQueue(songs, start, true, 0, label);
-  }, []);
+    startPlayback(songs, start, label);
+  }, [startPlayback]);
 
   async function downloadCollection(songs: SongSummary[]) {
     setToast(`Downloading ${songs.length} ${songs.length === 1 ? "track" : "tracks"}…`);
@@ -691,7 +966,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       const saved = offline ? cachedDetail(library, "album", album.id) : undefined;
       const full = saved && "songs" in saved ? saved as AlbumDetail : await invoke<AlbumDetail>("get_album", { id: album.id });
       if (start === 0) playCollection(full.songs, full.title);
-      else playback.playQueue(full.songs, start, true, 0, full.title);
+      else startPlayback(full.songs, start, full.title);
     } catch (reason) { setPageError(reasonMessage(reason, "That album could not be played.")); }
   }
 
@@ -700,7 +975,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       const saved = offline ? cachedDetail(library, "playlist", playlist.id) : undefined;
       const full = saved && "songs" in saved ? saved as PlaylistDetail : await invoke<PlaylistDetail>("get_playlist", { id: playlist.id });
       if (start === 0) playCollection(full.songs, full.name);
-      else playback.playQueue(full.songs, start, true, 0, full.name);
+      else startPlayback(full.songs, start, full.name);
     } catch (reason) { setPageError(reasonMessage(reason, "That playlist could not be played.")); }
   }
 
@@ -852,14 +1127,36 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
 
   async function movePlaybackTo(peer: ConnectPeer) {
     if (!playback.current || !playback.queue.length) return;
-    await sendRemote(peer.id, { name: "handoff", handoff: { trackIds: playback.queue.map((song) => song.id), currentTrackId: playback.current.id, position: playback.position, isPlaying: playback.isPlaying } });
+    // A transferred queue is capped at 1,000 entries (`docs/connect/WIRE-V1.md`).
+    // The other transfer sites already sliced; these two sent the whole queue,
+    // and a receiver that enforces the cap refuses the frame outright rather
+    // than truncating it, so a long queue moved nothing at all.
+    await sendRemote(peer.id, { name: "handoff", handoff: { trackIDs: playback.queue.slice(0, 1000).map((song) => song.id), currentTrackID: playback.current.id, position: playback.positionNow(), isPlaying: playback.isPlaying } });
+    // Moving between devices has to stop the first one; the handoff only ever
+    // starts the new one, so without this both would be playing.
+    const previous = remoteRef.current;
+    if (previous && previous.id !== peer.id) await sendRemote(previous.id, { name: "pause" });
     if (playback.isPlaying) await playback.toggle();
+    // The local queue stays loaded and paused, so this device becomes a remote
+    // for that peer rather than simply going quiet.
+    logConnectEvent("remote_begin", { peer: peer.id, peerName: peer.name, platform: peer.platform, trigger: "chosen", movedFrom: previous?.id ? "another device" : "here" });
+    setRemoteDevice({ id: peer.id, name: peer.name });
+    setToast(`Playing on ${peer.name}`);
   }
 
   async function playPeerHere(peer: ConnectPeer) {
-    if (!peer.playback.trackId) return;
+    if (!peer.playback.trackID) return;
+    // Taking the audio back ends remote control, whichever device it was for —
+    // including a third device that was playing until now.
+    const previous = remoteRef.current;
+    if (previous && previous.id !== peer.id) void sendRemote(previous.id, { name: "pause" });
+    if (previous) logConnectEvent("remote_end", { peer: previous.id, reason: "played here" });
+    setRemoteDevice(undefined);
     try {
-      const songs = await invoke<SongSummary[]>("get_songs_by_ids", { ids: [peer.playback.trackId] });
+      const songs = await invoke<SongSummary[]>("get_songs_by_ids", { ids: [peer.playback.trackID] });
+      if (!songs?.length) throw new Error(`${peer.name} is playing something this server could not resolve.`);
+      // Still a one-track queue: peer state carries only the current track, so
+      // recovering the rest of what that device holds needs a new message.
       playback.playQueue(songs, 0, peer.playback.isPlaying, peer.playback.position, peer.name);
       await sendRemote(peer.id, { name: "pause" });
     } catch (reason) { setPageError(reasonMessage(reason, "That track is not available on this server.")); }
@@ -868,19 +1165,79 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
   async function startGroup() {
     const localId = connectState.localDeviceId;
     if (!localId || !playback.current || !connectState.peers.length) return;
-    const session: LocalGroupSession = { id: crypto.randomUUID(), leaderId: localId, memberIds: connectState.peers.map((peer) => peer.id) };
-    const handoff = { trackIds: playback.queue.map((song) => song.id), currentTrackId: playback.current.id, position: playback.position, isPlaying: playback.isPlaying };
-    const group: ConnectGroup = { id: session.id, leaderId: localId, trackId: playback.current.id, position: playback.position, isPlaying: playback.isPlaying, sentAt: Date.now() };
-    setGroupSession(session);
-    lastGroupTrack.current = `${session.id}:${playback.current.id}`;
-    for (const peer of connectState.peers) await sendRemote(peer.id, { name: "groupJoin", groupJoin: { group, handoff } });
-    setToast(`Group session started on ${connectState.peers.length + 1} devices`);
+    // A device already rendering another session, or already driving a third
+    // device, is not available to take. Inviting it only produces a decline.
+    const candidates = connectState.peers.filter((peer) => {
+      const commitment = peer.commitment;
+      return !commitment || (!commitment.sessionID && !commitment.controllingPeerID);
+    });
+    if (!candidates.length) {
+      setPageError("Every nearby Splice device is already in a session.");
+      return;
+    }
+    const sessionId = crypto.randomUUID();
+    const startAt = playback.positionNow();
+    const handoff = { trackIDs: playback.queue.slice(0, 1000).map((song) => song.id), currentTrackID: playback.current.id, position: startAt, isPlaying: playback.isPlaying };
+    // A new session id starts its own revision count.
+    groupRevision.current = 1;
+    const group: ConnectGroup = { id: sessionId, leaderID: localId, trackID: playback.current.id, position: startAt, isPlaying: playback.isPlaying, sentAt: Date.now(), revision: 1 };
+    lastGroupTrack.current = `${sessionId}:${playback.current.id}`;
+    // A member is a device that answered. `sendGroupFrame` returning true only
+    // means the frame reached this device's own network stack, which a
+    // stale-but-open connection reports for a long time after the peer behind
+    // it stopped listening. That is what made a session report a member it had
+    // never reached.
+    const reachable = await Promise.all(candidates.map(async (peer) =>
+      await sendGroupFrame(peer.id, { name: "groupJoin", groupJoin: { group, handoff } }) ? peer.id : undefined));
+    const awaiting = new Set(reachable.filter((peerId): peerId is string => Boolean(peerId)));
+    groupSendFailures.current.clear();
+    if (!awaiting.size) {
+      lastGroupTrack.current = undefined;
+      groupRevision.current = 0;
+      logConnectEvent("group_invited", { session: sessionId, invited: candidates.length, accepted: 0, declined: 0, unanswered: 0, reasons: "", queued: handoff.trackIDs.length, unreachable: candidates.length });
+      setPageError("No other Splice device could be reached.");
+      return;
+    }
+    const invite = { sessionId, awaiting, accepted: [] as string[], declined: new Map<string, string>() };
+    pendingInvite.current = invite;
+    // Bounded, because a follower has real work to do first: it resolves the
+    // track against the server before it can honestly claim to have joined.
+    const deadline = Date.now() + GROUP_JOIN_TIMEOUT_MS;
+    while (invite.awaiting.size && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 50));
+    }
+    pendingInvite.current = undefined;
+    const members = invite.accepted;
+    logConnectEvent("group_invited", {
+      session: sessionId,
+      invited: candidates.length,
+      accepted: members.length,
+      declined: invite.declined.size,
+      unanswered: invite.awaiting.size,
+      reasons: [...invite.declined.values()].sort().join(","),
+      queued: handoff.trackIDs.length,
+    });
+    if (!members.length) {
+      lastGroupTrack.current = undefined;
+      groupRevision.current = 0;
+      setPageError(invite.declined.size
+        ? "No other Splice device could join right now."
+        : "No other Splice device answered.");
+      return;
+    }
+    setGroupSession({ id: sessionId, leaderID: localId, memberIDs: members });
+    // Only now has a session actually started, which is what iOS's
+    // `connect_group_started` has always meant.
+    logConnectEvent("group_started", { session: sessionId, members: members.length, revision: groupRevision.current });
+    setToast(`Group session started on ${members.length + 1} devices`);
   }
 
   async function stopGroup() {
     const session = groupRef.current;
     if (!session) return;
-    for (const peerId of session.memberIds) await sendRemote(peerId, { name: "groupLeave", group: { id: session.id, leaderId: session.leaderId, trackId: playback.current?.id ?? "", position: playback.position, isPlaying: playback.isPlaying, sentAt: Date.now() } });
+    for (const peerId of session.memberIDs) await sendRemote(peerId, { name: "groupLeave", group: { id: session.id, leaderID: session.leaderID, trackID: playback.current?.id ?? "", position: playback.positionNow(), isPlaying: playback.isPlaying, sentAt: Date.now() } });
+    endGroupDiagnostics("stopped here");
+    logConnectEvent("group_stopped", { session: session.id, members: session.memberIDs.length });
     setGroupSession(undefined);
     lastGroupTrack.current = undefined;
     setToast("Group session ended");
@@ -1180,20 +1537,20 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
           )}
           {pageError && <div className="page-error" role="alert">{pageError}<button aria-label="Dismiss error" onClick={() => setPageError(undefined)} type="button"><X size={15} /></button></div>}
           {route.kind === "home" && <Views.HomeView cardMenu={cardMenu} data={homeData} error={homeError} hiddenRows={settings.hiddenHomeRows} jumpBackIn={jumpBackIn} likedAlbums={likedAlbums} onOpen={openAlbum} onOpenJumpBackIn={openJumpBackIn} onOpenShortcut={openHomeShortcut} onPlay={playAlbum} onPlayShortcut={playHomeShortcut} onRetry={reloadHome} rowOrder={settings.homeRowOrder} shortcuts={homeShortcuts} title={routeTitle} />}
-          {route.kind === "search" && <Views.SearchView cardMenu={cardMenu} currentId={playback.current?.id} data={shownSearch} filter={searchFilter} onFilter={setSearchFilter} hasResults={hasSearchResults} historyKey={searchHistoryKey} home={homeData} isLoading={searching} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onOpenAlbum={openAlbum} onOpenArtist={openArtist} onOpenPlaylist={openPlaylist} onPlayAlbum={playAlbum} onPlayPlaylist={playPlaylist} onPlaySongs={(songs, index) => playback.playQueue(songs, index, true, 0, `Search for ${query}`)} onRecent={setQuery} onSelect={selectTrack} playlists={matchingSearchPlaylists} query={query} selectedIds={selectedIds} />}
+          {route.kind === "search" && <Views.SearchView cardMenu={cardMenu} currentId={playback.current?.id} data={shownSearch} filter={searchFilter} onFilter={setSearchFilter} hasResults={hasSearchResults} historyKey={searchHistoryKey} home={homeData} isLoading={searching} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onOpenAlbum={openAlbum} onOpenArtist={openArtist} onOpenPlaylist={openPlaylist} onPlayAlbum={playAlbum} onPlayPlaylist={playPlaylist} onPlaySongs={(songs, index) => startPlayback(songs, index, `Search for ${query}`)} onRecent={setQuery} onSelect={selectTrack} playlists={matchingSearchPlaylists} query={query} selectedIds={selectedIds} />}
           {route.kind === "library" && <Views.LibraryView cardMenu={cardMenu} error={libraryError} filter={libraryFilter} grid={settings.libraryGridView} items={libraryItems} onToggleGrid={() => updateSetting("libraryGridView", !settings.libraryGridView)} onFilter={setLibraryFilter} onOpenAlbum={openAlbum} onOpenArtist={openArtist} onOpenPlaylist={openPlaylist} onPlayAlbum={playAlbum} onPlayPlaylist={playPlaylist} onRetry={reloadLibrary} />}
-          {route.kind === "liked" && <Views.LikedView currentId={playback.current?.id} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onPlay={(songs, index) => playback.playQueue(songs, index, true, 0, "Liked Songs")} onPlayCollection={playCollection} onSelect={selectTrack} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} selectedIds={selectedIds} shuffleArmed={playback.shuffle} songs={shownLiked} />}
-          {route.kind === "downloads" && <Views.DownloadsView currentId={playback.current?.id} downloads={downloads} isPlaying={playback.isPlaying} onClear={() => setClearDownloadsConfirm(true)} onMenu={openTrackMenu} onPlay={(songs, index) => playback.playQueue(songs, index, true, 0, "Downloads")} onSelect={selectTrack} />}
-          {(route.kind === "album" || route.kind === "playlist" || route.kind === "artist") && (pageError && !detail && !pageLoading ? <Views.EmptyState title="This page is unavailable" body="Reconnect to your server, then try again." /> : <Views.DetailView cardMenu={cardMenu} collectionStarred={collectionStarred} onEnlarge={(coverArt, alt) => setLightbox({ coverArt, alt })} onDelete={() => detail && "name" in detail && setPlaylistDelete({ id: route.kind === "playlist" ? route.id : "", name: detail.name })} currentId={playback.current?.id} detail={shownDetail} downloads={downloads} isLoading={pageLoading} isPlaying={playback.isPlaying} onDownloadCollection={(songs) => void downloadCollection(songs)} onMenu={openTrackMenu} onOpenAlbum={openAlbumById} onOpenArtist={openArtistById} onPlay={(songs, index, label) => playback.playQueue(songs, index, true, 0, label)} onPlayAlbum={playAlbum} onPlayCollection={playCollection} onRadio={startRadio} onRemoveCollection={(songs) => void removeCollection(songs)} onRename={() => detail && "name" in detail && setPlaylistEdit({ id: route.kind === "playlist" ? route.id : "", name: detail.name })} onReorder={(from, to) => void reorderCurrentPlaylist(from, to)} onSelect={selectTrack} onToggleCollectionStar={() => (route.kind === "album" || route.kind === "artist") && void setCollectionStarred(route.kind, route.id, !collectionStarred, detail as AlbumSummary | ArtistSummary | undefined)} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} ownsPlaylist={ownsCurrentPlaylist} route={route} selectedIds={selectedIds} shuffleArmed={playback.shuffle} />)}
-          {route.kind === "radio" && <Views.RadioView currentId={playback.current?.id} data={shownRadio} isLoading={pageLoading} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onPlay={(songs, index) => playback.playQueue(songs, index, true, 0, route.title)} onPlayCollection={playCollection} onSelect={selectTrack} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} selectedIds={selectedIds} shuffleArmed={playback.shuffle} title={route.title} />}
+          {route.kind === "liked" && <Views.LikedView currentId={playback.current?.id} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onPlay={(songs, index) => startPlayback(songs, index, "Liked Songs")} onPlayCollection={playCollection} onSelect={selectTrack} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} selectedIds={selectedIds} shuffleArmed={playback.shuffle} songs={shownLiked} />}
+          {route.kind === "downloads" && <Views.DownloadsView currentId={playback.current?.id} downloads={downloads} isPlaying={playback.isPlaying} onClear={() => setClearDownloadsConfirm(true)} onMenu={openTrackMenu} onPlay={(songs, index) => startPlayback(songs, index, "Downloads")} onSelect={selectTrack} />}
+          {(route.kind === "album" || route.kind === "playlist" || route.kind === "artist") && (pageError && !detail && !pageLoading ? <Views.EmptyState title="This page is unavailable" body="Reconnect to your server, then try again." /> : <Views.DetailView cardMenu={cardMenu} collectionStarred={collectionStarred} onEnlarge={(coverArt, alt) => setLightbox({ coverArt, alt })} onDelete={() => detail && "name" in detail && setPlaylistDelete({ id: route.kind === "playlist" ? route.id : "", name: detail.name })} currentId={playback.current?.id} detail={shownDetail} downloads={downloads} isLoading={pageLoading} isPlaying={playback.isPlaying} onDownloadCollection={(songs) => void downloadCollection(songs)} onMenu={openTrackMenu} onOpenAlbum={openAlbumById} onOpenArtist={openArtistById} onPlay={(songs, index, label) => startPlayback(songs, index, label)} onPlayAlbum={playAlbum} onPlayCollection={playCollection} onRadio={startRadio} onRemoveCollection={(songs) => void removeCollection(songs)} onRename={() => detail && "name" in detail && setPlaylistEdit({ id: route.kind === "playlist" ? route.id : "", name: detail.name })} onReorder={(from, to) => void reorderCurrentPlaylist(from, to)} onSelect={selectTrack} onToggleCollectionStar={() => (route.kind === "album" || route.kind === "artist") && void setCollectionStarred(route.kind, route.id, !collectionStarred, detail as AlbumSummary | ArtistSummary | undefined)} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} ownsPlaylist={ownsCurrentPlaylist} route={route} selectedIds={selectedIds} shuffleArmed={playback.shuffle} />)}
+          {route.kind === "radio" && <Views.RadioView currentId={playback.current?.id} data={shownRadio} isLoading={pageLoading} isPlaying={playback.isPlaying} onMenu={openTrackMenu} onPlay={(songs, index) => startPlayback(songs, index, route.title)} onPlayCollection={playCollection} onSelect={selectTrack} onToggleShuffle={toggleShuffle} onToggleStar={toggleSongStar} selectedIds={selectedIds} shuffleArmed={playback.shuffle} title={route.title} />}
           {route.kind === "profile" && <Views.ProfileView connectionStatus={connection.status} library={library} overview={libraryData} onDevices={() => openPanel("connect")} onSettings={() => navigate({ kind: "settings" })} onSignOut={() => void leaveSession(false)} />}
           {route.kind === "settings" && <Views.SettingsView contextWidth={contextWidth} downloads={downloads} library={library} onClearDownloads={() => setClearDownloadsConfirm(true)} onOpenPanel={openPanel} onReload={() => { reloadHome(); reloadLibrary(); }} onResetLayout={() => { setSidebarWidth(280); setContextWidth(350); setToast("Desktop layout reset"); }} onSleep={(minutes) => { setSleepAt(minutes === undefined ? undefined : Date.now() + minutes * 60_000); setToast(minutes === undefined ? "Sleep timer cancelled" : `Playback stops in ${minutes} min`); }} resetSettings={resetSettings} settings={settings} sidebarWidth={sidebarWidth} sleepRemaining={sleepRemaining} updateSetting={updateSetting} />}
         </div>
       </main>
 
-      {panelMode && <DesktopContextPanel connect={connectState} groupId={groupSession?.id} lyrics={lyrics} lyricsLoading={lyricsLoading} mode={panelMode} onClose={() => setPanelMode(undefined)} onMoveHere={playPeerHere} onMoveToDevice={movePlaybackTo} lyricsAutoScroll={settings.lyricsAutoScroll} lyricsTextSize={settings.lyricsTextSize} onResize={beginContextResize} onResizeKey={resizeContextWithKeyboard} onSaveQueue={() => setSaveQueueOpen(true)} onSend={sendRemote} onStartGroup={startGroup} onStopGroup={stopGroup} playback={playback} width={contextWidth} />}
-      <PlayerBar expanded={fullPlayer} liked={currentLiked} onOpenAlbum={(id) => { setFullPlayer(false); openAlbumById(id); }} onOpenArtist={(id) => { setFullPlayer(false); openArtistById(id); }} onOpenPanel={openPanel} onToggleExpanded={() => setFullPlayer((value) => !value)} onToggleLike={() => playback.current && void toggleSongStar({ ...playback.current, starred: currentLiked ? new Date().toISOString() : undefined })} panelMode={panelMode} playback={playback} />
-      {fullPlayer && <FullPlayer liked={currentLiked} lyrics={lyrics} lyricsAutoScroll={settings.lyricsAutoScroll} lyricsLoading={lyricsLoading} lyricsTextSize={settings.lyricsTextSize} onClose={() => setFullPlayer(false)} onOpenAlbum={(id) => { setFullPlayer(false); openAlbumById(id); }} onOpenArtist={(id) => { setFullPlayer(false); openArtistById(id); }} onOpenPanel={openPanel} onToggleLike={() => playback.current && void toggleSongStar({ ...playback.current, starred: currentLiked ? new Date().toISOString() : undefined })} playback={playback} />}
+      {panelMode && <DesktopContextPanel connect={connectState} groupId={groupSession?.id} lyrics={lyrics} lyricsLoading={lyricsLoading} mode={panelMode} onClose={() => setPanelMode(undefined)} onMoveHere={playPeerHere} onMoveToDevice={movePlaybackTo} remoteDeviceId={remoteDevice?.id} lyricsAutoScroll={settings.lyricsAutoScroll} lyricsTextSize={settings.lyricsTextSize} onResize={beginContextResize} onResizeKey={resizeContextWithKeyboard} onSaveQueue={() => setSaveQueueOpen(true)} onSend={sendRemote} onStartGroup={startGroup} onStopGroup={stopGroup} playback={playback} width={contextWidth} />}
+      <PlayerBar expanded={fullPlayer} liked={currentLiked} onOpenDevices={() => openPanel("connect")} remoteDevice={remoteDevice} onOpenAlbum={(id) => { setFullPlayer(false); openAlbumById(id); }} onOpenArtist={(id) => { setFullPlayer(false); openArtistById(id); }} onOpenPanel={openPanel} onToggleExpanded={() => setFullPlayer((value) => !value)} onToggleLike={() => playback.current && void toggleSongStar({ ...playback.current, starred: currentLiked ? new Date().toISOString() : undefined })} panelMode={panelMode} playback={transport} />
+      {fullPlayer && <FullPlayer liked={currentLiked} lyrics={lyrics} lyricsAutoScroll={settings.lyricsAutoScroll} lyricsLoading={lyricsLoading} lyricsTextSize={settings.lyricsTextSize} onClose={() => setFullPlayer(false)} onOpenAlbum={(id) => { setFullPlayer(false); openAlbumById(id); }} onOpenArtist={(id) => { setFullPlayer(false); openArtistById(id); }} onOpenPanel={openPanel} onToggleLike={() => playback.current && void toggleSongStar({ ...playback.current, starred: currentLiked ? new Date().toISOString() : undefined })} playback={transport} />}
       {trackMenu && (() => {
         const targets = selectedIds.has(`${trackMenu.song.id}-${trackMenu.index}`) && selectedSongs.length > 1 ? selectedSongs : [trackMenu.song];
         return <><button aria-label="Close track menu" className="context-menu-scrim" onClick={() => setTrackMenu(undefined)} type="button" /><TrackContextMenu

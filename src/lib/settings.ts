@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { clampEqualizer, flatEqualizer, type EqualizerSettings } from "./equalizer";
 
 /// Bitrate cap in kbps. 0 is "Original": no transcode, no cap, no target
 /// format — the same tier model the iOS settings store uses.
@@ -69,6 +70,7 @@ export type DesktopSettings = {
   crossfadeSeconds: number;
   gapless: boolean;
   autoplay: boolean;
+  equalizer: EqualizerSettings;
   hideExplicitContent: boolean;
   keepPlayingInBackground: boolean;
   homeRowOrder: HomeRow[];
@@ -91,6 +93,7 @@ export const defaultSettings: DesktopSettings = {
   crossfadeSeconds: 0,
   gapless: true,
   autoplay: true,
+  equalizer: flatEqualizer,
   hideExplicitContent: false,
   keepPlayingInBackground: false,
   homeRowOrder: [...homeRows],
@@ -129,6 +132,9 @@ function coerce(raw: unknown): DesktopSettings {
     crossfadeSeconds: Math.max(0, Math.min(12, Number(value.crossfadeSeconds) || 0)),
     gapless: value.gapless === undefined ? defaultSettings.gapless : Boolean(value.gapless),
     autoplay: value.autoplay === undefined ? defaultSettings.autoplay : Boolean(value.autoplay),
+    // Every range and the curve's length are fixed up in one place, so a blob
+    // written by an older build cannot reach the filters.
+    equalizer: clampEqualizer(value.equalizer),
     hideExplicitContent: Boolean(value.hideExplicitContent),
     keepPlayingInBackground: Boolean(value.keepPlayingInBackground),
     // Unknown ids are dropped and new ones appended, so adding a row later does

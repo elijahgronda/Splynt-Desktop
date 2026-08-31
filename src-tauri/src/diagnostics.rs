@@ -147,6 +147,13 @@ pub(crate) fn start(app: &tauri::AppHandle) {
     );
     detail.insert("os".into(), Value::from(std::env::consts::OS));
     detail.insert("arch".into(), Value::from(std::env::consts::ARCH));
+    // The id other devices see this one as. Two exported logs could not be
+    // proved to be a pair before: neither said who wrote it, and no Connect
+    // line named the device on the other end.
+    detail.insert(
+        "device".into(),
+        Value::from(crate::connect::persistent_device_id()),
+    );
     log_detail("launch", detail);
 
     install_panic_hook();
