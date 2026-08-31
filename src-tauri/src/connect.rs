@@ -1,6 +1,5 @@
 use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
 use reqwest::Url;
-use tauri::{AppHandle, Emitter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -16,6 +15,7 @@ use std::{
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+use tauri::{AppHandle, Emitter};
 
 const SERVICE_TYPE: &str = "_spliceconnect._tcp.local.";
 const MAX_CONNECTIONS: usize = 64;
@@ -863,7 +863,7 @@ fn note_undecodable_frame(runtime: &Arc<Runtime>, frame: &[u8]) {
         let Ok(mut last) = runtime.last_undecodable_report.lock() else {
             return;
         };
-        if last.map_or(false, |at: Instant| at.elapsed() < Duration::from_secs(10)) {
+        if last.is_some_and(|at: Instant| at.elapsed() < Duration::from_secs(10)) {
             return;
         }
         *last = Some(Instant::now());
@@ -954,7 +954,10 @@ fn valid_group_reply(reply: &ConnectGroupReply) -> bool {
         && reply.session_id.len() <= 128
         && !reply.device_id.is_empty()
         && reply.device_id.len() <= 128
-        && reply.reason.as_ref().is_none_or(|reason| reason.len() <= 256)
+        && reply
+            .reason
+            .as_ref()
+            .is_none_or(|reason| reason.len() <= 256)
 }
 
 fn valid_time_probe(probe: &ConnectTimeProbe) -> bool {
@@ -1001,9 +1004,8 @@ fn broadcast_state(runtime: &Arc<Runtime>) {
     // A partial write leaves that peer's framing broken, so a failed send
     // retires the socket instead of being retried. The browser thread redials
     // it once the service is seen again.
-    let is_dead = |candidate: &Arc<Mutex<TcpStream>>| {
-        dead.iter().any(|gone| Arc::ptr_eq(candidate, gone))
-    };
+    let is_dead =
+        |candidate: &Arc<Mutex<TcpStream>>| dead.iter().any(|gone| Arc::ptr_eq(candidate, gone));
     if let Ok(mut connections) = runtime.connections.lock() {
         connections.retain(|candidate| !is_dead(candidate));
     }
@@ -1264,11 +1266,19 @@ mod tests {
     #[test]
     fn an_explicitly_written_default_port_stays_in_the_fingerprint() {
         assert_eq!(
-            fingerprint("https://music.example.test:443", "testuser", "correct horse"),
+            fingerprint(
+                "https://music.example.test:443",
+                "testuser",
+                "correct horse"
+            ),
             fingerprint("music.example.test:443", "testuser", "correct horse")
         );
         assert_ne!(
-            fingerprint("https://music.example.test:443", "testuser", "correct horse"),
+            fingerprint(
+                "https://music.example.test:443",
+                "testuser",
+                "correct horse"
+            ),
             fingerprint("https://music.example.test", "testuser", "correct horse")
         );
         // An IPv6 literal's own colons are not a port.
@@ -1282,12 +1292,14 @@ mod tests {
         );
     }
 
-
     #[test]
     fn a_frame_split_across_reads_is_reassembled() {
         let mut buffer = Vec::new();
         buffer.extend_from_slice(br#"{"kind":"stat"#);
-        assert!(drain_frames(&mut buffer).is_empty(), "a partial frame yields nothing");
+        assert!(
+            drain_frames(&mut buffer).is_empty(),
+            "a partial frame yields nothing"
+        );
         buffer.extend_from_slice(b"e\"}\n");
         let frames = drain_frames(&mut buffer);
         assert_eq!(frames.len(), 1);
@@ -1310,11 +1322,14 @@ mod tests {
     fn an_oversized_unterminated_buffer_is_discarded() {
         let mut buffer = vec![b'x'; MAX_BUFFERED_FRAME + 1];
         assert!(drain_frames(&mut buffer).is_empty());
-        assert!(buffer.is_empty(), "the contract discards it rather than growing");
+        assert!(
+            buffer.is_empty(),
+            "the contract discards it rather than growing"
+        );
 
         // A complete frame followed by a huge tail still delivers the frame.
         let mut mixed = Vec::from(&b"{\"kind\":\"state\"}\n"[..]);
-        mixed.extend(std::iter::repeat(b'x').take(MAX_BUFFERED_FRAME + 1));
+        mixed.extend(std::iter::repeat_n(b'x', MAX_BUFFERED_FRAME + 1));
         let frames = drain_frames(&mut mixed);
         assert_eq!(frames.len(), 1);
         assert!(mixed.is_empty());
@@ -1333,7 +1348,8 @@ mod tests {
     #[test]
     fn invalid_json_is_skipped_without_disturbing_the_frames_around_it() {
         let mut buffer = Vec::new();
-        buffer.extend_from_slice(b"not json at all\n{\"kind\":\"state\",\"authentication\":\"x\"}\n");
+        buffer
+            .extend_from_slice(b"not json at all\n{\"kind\":\"state\",\"authentication\":\"x\"}\n");
         let frames = drain_frames(&mut buffer);
         assert_eq!(frames.len(), 2);
         assert!(serde_json::from_slice::<WireMessage>(&frames[0]).is_err());
@@ -1364,10 +1380,19 @@ mod tests {
     #[test]
     fn command_validation_matches_the_wire_contract() {
         for name in ["play", "pause", "toggle", "previous", "next"] {
-            assert!(valid_command(&named(name)), "{name} is a v1 transport command");
+            assert!(
+                valid_command(&named(name)),
+                "{name} is a v1 transport command"
+            );
         }
-        assert!(!valid_command(&named("seek")), "seek without a value is malformed");
-        assert!(!valid_command(&named("selfDestruct")), "unknown names are refused");
+        assert!(
+            !valid_command(&named("seek")),
+            "seek without a value is malformed"
+        );
+        assert!(
+            !valid_command(&named("selfDestruct")),
+            "unknown names are refused"
+        );
 
         let mut seek = named("seek");
         seek.value = Some(42.25);
@@ -1380,13 +1405,19 @@ mod tests {
         assert!(valid_command(&transfer));
 
         let mut join = named("groupJoin");
-        join.group_join = Some(ConnectGroupJoin { group: group(), handoff: handoff() });
+        join.group_join = Some(ConnectGroupJoin {
+            group: group(),
+            handoff: handoff(),
+        });
         assert!(valid_command(&join));
 
         let mut sync = named("groupSync");
         sync.group = Some(group());
         assert!(valid_command(&sync));
-        assert!(!valid_command(&named("groupSync")), "groupSync needs its group");
+        assert!(
+            !valid_command(&named("groupSync")),
+            "groupSync needs its group"
+        );
     }
 
     #[test]
@@ -1533,14 +1564,20 @@ mod tests {
             t2: None,
             t3: None,
         });
-        assert!(!valid_command(&ping), "an anonymous probe cannot be matched");
+        assert!(
+            !valid_command(&ping),
+            "an anonymous probe cannot be matched"
+        );
         ping.time = Some(ConnectTimeProbe {
             id: "probe-1".into(),
             t1: f64::NAN,
             t2: None,
             t3: None,
         });
-        assert!(!valid_command(&ping), "a probe with no send time measures nothing");
+        assert!(
+            !valid_command(&ping),
+            "a probe with no send time measures nothing"
+        );
         ping.time = Some(ConnectTimeProbe {
             id: "probe-1".into(),
             t1: 1_800_000_000_000.0,
@@ -1562,14 +1599,20 @@ mod tests {
             revision: 1,
             reason: None,
         });
-        assert!(!valid_command(&accept), "a reply to no session means nothing");
+        assert!(
+            !valid_command(&accept),
+            "a reply to no session means nothing"
+        );
         accept.group_reply = Some(ConnectGroupReply {
             session_id: "room".into(),
             device_id: String::new(),
             revision: 1,
             reason: None,
         });
-        assert!(!valid_command(&accept), "an anonymous reply cannot be matched");
+        assert!(
+            !valid_command(&accept),
+            "an anonymous reply cannot be matched"
+        );
         accept.group_reply = Some(ConnectGroupReply {
             session_id: "room".into(),
             device_id: "phone".into(),
@@ -1683,7 +1726,10 @@ mod tests {
         assert_eq!(state["playback"]["coverArtID"], "cover-1");
         assert_eq!(state["commitment"]["sessionID"], "room");
         assert_eq!(state["commitment"]["leaderID"], "mac");
-        assert!(state["playback"].get("trackId").is_none(), "the camelCase spelling is not on this wire");
+        assert!(
+            state["playback"].get("trackId").is_none(),
+            "the camelCase spelling is not on this wire"
+        );
 
         let mut transfer = named("handoff");
         transfer.handoff = Some(handoff());
@@ -1695,7 +1741,8 @@ mod tests {
         // them. A missing key here does not fail loudly: an `Option` reads as
         // absent and a required field kills the whole frame, which is what
         // made a phone and a Mac see each other as devices playing nothing.
-        let ios_state = br#"{"id":"phone","name":"iPhone","platform":"iPhone","updatedAt":808315200.0,
+        let ios_state =
+            br#"{"id":"phone","name":"iPhone","platform":"iPhone","updatedAt":808315200.0,
             "playback":{"trackID":"t","title":"Title","artist":"Artist","album":"Album",
             "coverArtID":"c","isPlaying":true,"position":42.25,"duration":218.0},
             "commitment":{"revision":2,"controllingPeerID":"mac"}}"#;
@@ -1722,7 +1769,10 @@ mod tests {
         let ios_accept = br#"{"name":"groupAccept","groupReply":
             {"sessionID":"room","deviceID":"phone","revision":1}}"#;
         let accept: ConnectCommand = serde_json::from_slice(ios_accept).unwrap();
-        assert!(valid_command(&accept), "a leader that cannot read an accept counts no members");
+        assert!(
+            valid_command(&accept),
+            "a leader that cannot read an accept counts no members"
+        );
         assert_eq!(accept.group_reply.unwrap().device_id, "phone");
     }
 }
