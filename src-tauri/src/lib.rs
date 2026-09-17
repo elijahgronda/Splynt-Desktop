@@ -3,7 +3,7 @@ mod diagnostics;
 mod models;
 mod subsonic;
 
-use connect::SpliceConnectState;
+use connect::SplyntConnectState;
 use std::sync::atomic::{AtomicBool, Ordering};
 use subsonic::{DownloadState, PlaybackPrefsState, SessionState};
 use tauri::{
@@ -33,7 +33,7 @@ fn log_message(level: String, message: String) {
 /// A structured event from the webview, keeping its fields as fields.
 ///
 /// `log_message` flattens everything into one string, which is right for a
-/// console warning and wrong for a measurement — Splice Connect's drift
+/// console warning and wrong for a measurement — Splynt Connect's drift
 /// numbers are only useful if they can be read back as numbers.
 #[tauri::command]
 fn log_event(event: String, detail: std::collections::HashMap<String, serde_json::Value>) {
@@ -138,7 +138,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let about = Submenu::with_items(
         app,
-        "Splice",
+        "Splynt",
         true,
         &[
             &PredefinedMenuItem::about(app, None, None)?,
@@ -191,7 +191,7 @@ fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         &[
             &MenuItem::with_id(app, "queue", "Queue", true, Some("CmdOrCtrl+Shift+Q"))?,
             &MenuItem::with_id(app, "lyrics", "Lyrics", true, None::<&str>)?,
-            &MenuItem::with_id(app, "devices", "Splice Connect Devices", true, None::<&str>)?,
+            &MenuItem::with_id(app, "devices", "Splynt Connect Devices", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "fullplayer", "Full Player", true, None::<&str>)?,
         ],
@@ -224,7 +224,7 @@ pub fn run() {
         .manage(SessionState::default())
         .manage(DownloadState::default())
         .manage(PlaybackPrefsState::default())
-        .manage(SpliceConnectState::default())
+        .manage(SplyntConnectState::default())
         .setup(|app| {
             // First, so everything below is recorded — including a failure here.
             diagnostics::start(&app.handle().clone());
@@ -248,8 +248,8 @@ pub fn run() {
                 }
             });
 
-            let show = MenuItem::with_id(app, "tray-show", "Show Splice", true, None::<&str>)?;
-            let quit = PredefinedMenuItem::quit(app, Some("Quit Splice"))?;
+            let show = MenuItem::with_id(app, "tray-show", "Show Splynt", true, None::<&str>)?;
+            let quit = PredefinedMenuItem::quit(app, Some("Quit Splynt"))?;
             let tray_menu = Menu::with_items(app, &[&show, &quit])?;
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().ok_or_else(|| {
@@ -330,7 +330,7 @@ pub fn run() {
             connect::send_connect_command
         ])
         .build(tauri::generate_context!())
-        .expect("error while running Splice")
+        .expect("error while running Splynt")
         // `_app` rather than `app`: its only use is inside the macOS-only Reopen
         // arm below, so on Linux and Windows that arm is compiled out and the
         // binding is genuinely unused. `-D warnings` in CI turns that into a hard

@@ -19,7 +19,7 @@ type PlayerBarProps = {
   onToggleExpanded: () => void;
   onToggleLike: () => void;
   liked: boolean;
-  /// Set while this window is acting as a remote for another Splice device.
+  /// Set while this window is acting as a remote for another Splynt device.
   /// The transport it is handed already routes to that device; this is only
   /// how the bar says so.
   remoteDevice?: { id: string; name: string };
@@ -73,7 +73,7 @@ export function PlayerBar({ expanded, playback, panelMode, onOpenAlbum, onOpenAr
         <button className={panelMode === "nowPlaying" ? "player-icon player-icon--active" : "player-icon"} aria-label="Now playing view" title="Now playing view" aria-pressed={panelMode === "nowPlaying"} onClick={() => onOpenPanel("nowPlaying")} type="button"><PanelRightOpen size={18} /></button>
         <button className={panelMode === "lyrics" ? "player-icon player-icon--active" : "player-icon"} aria-label="Lyrics" title="Lyrics" aria-pressed={panelMode === "lyrics"} onClick={() => onOpenPanel("lyrics")} type="button"><MessageSquareQuote size={18} /></button>
         <button className={panelMode === "queue" ? "player-icon player-icon--active" : "player-icon"} aria-label="Queue" title="Queue" aria-pressed={panelMode === "queue"} onClick={() => onOpenPanel("queue")} type="button"><ListMusic size={18} /></button>
-        <button className={panelMode === "connect" || remoteDevice ? "player-icon player-icon--active" : "player-icon"} aria-label="Splice Connect devices" title="Splice Connect devices" aria-pressed={panelMode === "connect"} onClick={() => onOpenPanel("connect")} type="button"><MonitorSpeaker size={18} /></button>
+        <button className={panelMode === "connect" || remoteDevice ? "player-icon player-icon--active" : "player-icon"} aria-label="Splynt Connect devices" title="Splynt Connect devices" aria-pressed={panelMode === "connect"} onClick={() => onOpenPanel("connect")} type="button"><MonitorSpeaker size={18} /></button>
         <button className="player-icon" aria-label={playback.volume === 0 ? "Unmute" : "Mute"} title={playback.volume === 0 ? "Unmute" : "Mute"} onClick={() => playback.setVolume(playback.volume === 0 ? 0.8 : 0)} type="button"><VolumeIcon size={18} /></button>
         <SmoothRange aria-label="Volume" max={1} min={0} onChange={playback.setVolume} step={0.005} value={playback.volume} />
         <button aria-label={expanded ? "Exit full player" : "Open full player"} aria-pressed={expanded} className={expanded ? "player-icon player-icon--active" : "player-icon"} data-full-player-toggle disabled={!playback.current} onClick={onToggleExpanded} title={expanded ? "Exit full player" : "Open full player"} type="button"><Maximize2 size={17} /></button>

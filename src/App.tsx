@@ -9,7 +9,7 @@ import type { ConnectedLibrary } from "./types";
 function restoreFailureMessage(reason: unknown) {
   const message = typeof reason === "string" ? reason : reason instanceof Error ? reason.message : "";
   if (!message || /\bundefined\b|__TAURI|\binvoke\b/i.test(message)) {
-    return "Splice could not reach the desktop service. Close this window and reopen the app.";
+    return "Splynt could not reach the desktop service. Close this window and reopen the app.";
   }
   return message;
 }
@@ -78,12 +78,12 @@ export default function App() {
 
   if (isRestoring) {
     return (
-      <main className="splash-page" aria-label="Opening Splice">
+      <main className="splash-page" aria-label="Opening Splynt">
         <Brand />
         <span className="spinner" aria-hidden="true" />
         <div className="splash-page__status" role="status">
           <strong>{restoreSlow ? "Your server is taking a while" : "Opening your library"}</strong>
-          <small>{restoreSlow ? "You can keep waiting or open Splice without it." : "Restoring your last session…"}</small>
+          <small>{restoreSlow ? "You can keep waiting or open Splynt without it." : "Restoring your last session…"}</small>
         </div>
         {restoreSlow && <button onClick={continueWithoutRestore} type="button">Continue without waiting</button>}
       </main>

@@ -187,7 +187,7 @@ export type DesktopRoute =
 
 export type RepeatMode = "off" | "all" | "one";
 
-/// Wire field names follow `SpliceConnect.swift`, which `docs/connect/WIRE-V1.md`
+/// Wire field names follow `SplyntConnect.swift`, which `docs/connect/WIRE-V1.md`
 /// names as the contract these have to match byte-for-byte. Swift synthesises
 /// its coding keys from property names, so the id keys are `trackID`, not the
 /// `trackId` a camelCase convention would produce. The desktop spent its whole

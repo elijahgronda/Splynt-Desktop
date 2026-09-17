@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    splice_desktop_lib::run();
+    splynt_desktop_lib::run();
 }

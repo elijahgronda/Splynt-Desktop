@@ -33,7 +33,7 @@ export function EqualizerPanel({ settings, onChange }: { settings: EqualizerSett
     <section>
       <h2>Equalizer</h2>
       <label className="setting-row">
-        <span><strong>Equalizer</strong><small>Applies to everything Splice plays on this device, streamed or downloaded.</small></span>
+        <span><strong>Equalizer</strong><small>Applies to everything Splynt plays on this device, streamed or downloaded.</small></span>
         <input checked={settings.enabled} onChange={(event) => onChange({ ...settings, enabled: event.target.checked })} type="checkbox" />
       </label>
 

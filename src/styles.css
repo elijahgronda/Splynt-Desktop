@@ -871,7 +871,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .player-identity__link:hover { text-decoration: underline; }
 
 /* "Playing on <device>" — the bar's own statement that its transport is
-   driving another Splice device rather than this one's audio. */
+   driving another Splynt device rather than this one's audio. */
 .player-remote {
   display: flex;
   align-items: center;
@@ -1048,7 +1048,7 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
-/* Desktop v2 shell — keeps the Spotify-familiar geometry while preserving Splice identity. */
+/* Desktop v2 shell — keeps the Spotify-familiar geometry while preserving Splynt identity. */
 .desktop-shell {
   grid-template-columns: var(--sidebar-width, 280px) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) 72px;
@@ -1831,7 +1831,7 @@ html[data-platform="macos"] .desktop-sidebar { padding-top: 58px; }
 .sidebar-collections:hover::-webkit-scrollbar-thumb,
 .context-panel:hover::-webkit-scrollbar-thumb { border: 3px solid transparent; background: #555; background-clip: padding-box; }
 
-/* Desktop v3: native-Splice tokens with desktop music-player hierarchy. */
+/* Desktop v3: native-Splynt tokens with desktop music-player hierarchy. */
 :root {
   --color-canvas: #090a09;
   --color-surface-1: #121212;

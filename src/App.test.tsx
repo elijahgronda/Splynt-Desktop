@@ -6,7 +6,7 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-describe("Splice Desktop authentication", () => {
+describe("Splynt Desktop authentication", () => {
   beforeEach(() => {
     localStorage.clear();
     invoke.mockReset();
@@ -25,7 +25,7 @@ describe("Splice Desktop authentication", () => {
     invoke.mockImplementation((command: string) => command === "restore_session" ? new Promise(() => undefined) : Promise.resolve(undefined));
     const view = render(<App />);
 
-    expect(screen.getByRole("main", { name: "Opening Splice" })).toBeInTheDocument();
+    expect(screen.getByRole("main", { name: "Opening Splynt" })).toBeInTheDocument();
     await act(async () => {
       vi.advanceTimersByTime(3_500);
       await Promise.resolve();
@@ -223,7 +223,7 @@ describe("Splice Desktop authentication", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Play Server Album" }));
     expect(await screen.findByText("Server Song")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Splice Connect devices" }));
+    fireEvent.click(screen.getByRole("button", { name: "Splynt Connect devices" }));
     const devices = await screen.findByRole("complementary", { name: "Devices" });
     fireEvent.click(await within(devices).findByRole("button", { name: "Play on Living Room" }));
 

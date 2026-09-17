@@ -38,7 +38,7 @@ build_args=()
 app_args=()
 profile="debug"
 target_triple=""
-binary_name="splice-desktop"
+binary_name="splynt-desktop"
 
 while (( $# > 0 )); do
   case "$1" in
@@ -101,7 +101,7 @@ done
 
 cd "$tauri_dir"
 
-print "Building Splice for signed macOS development..."
+print "Building Splynt for signed macOS development..."
 cargo build "${build_args[@]}"
 
 target_dir="${CARGO_TARGET_DIR:-target}"
@@ -114,11 +114,11 @@ fi
 
 binary_path="$target_dir/$profile/$binary_name"
 if [[ ! -f "$binary_path" ]]; then
-  print -u2 "Cargo completed, but the expected Splice executable was not found at $binary_path"
+  print -u2 "Cargo completed, but the expected Splynt executable was not found at $binary_path"
   exit 1
 fi
 
-print "Signing Splice with stable identity: $identity"
+print "Signing Splynt with stable identity: $identity"
 /usr/bin/codesign \
   --force \
   --sign "$identity" \
@@ -127,5 +127,5 @@ print "Signing Splice with stable identity: $identity"
   "$binary_path"
 /usr/bin/codesign --verify --strict --verbose=2 "$binary_path"
 
-print "Launching signed Splice development build."
+print "Launching signed Splynt development build."
 exec "$binary_path" "${app_args[@]}"

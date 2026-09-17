@@ -12,7 +12,7 @@
 //    there is no API to put it back. So attaching is done lazily, the first
 //    time the listener actually turns the equalizer on, and turning it off
 //    afterwards flattens the filters rather than trying to undo the routing.
-// 2. The element must be CORS-clean or the graph outputs silence. Splice's
+// 2. The element must be CORS-clean or the graph outputs silence. Splynt's
 //    audio comes from its own local media proxy, which already answers with
 //    `Access-Control-Allow-Origin: *` on both the streamed and the downloaded
 //    path, so `crossOrigin = "anonymous"` is safe. It has to be set before any

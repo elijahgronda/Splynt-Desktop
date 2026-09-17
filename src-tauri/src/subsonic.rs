@@ -1,4 +1,4 @@
-use crate::connect::SpliceConnectState;
+use crate::connect::SplyntConnectState;
 use crate::models::{
     AlbumDetail, AlbumList, AlbumSummary, ArtistDetail, ConnectRequest, ConnectedLibrary, Envelope,
     GenreShelf, HomeOverview, LibraryOverview, LyricsLine, LyricsResult, PlayQueueSnapshot,
@@ -26,7 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 const API_VERSION: &str = "1.16.1";
-const CLIENT_NAME: &str = "splice-desktop";
+const CLIENT_NAME: &str = "splynt-desktop";
 const KEYRING_SERVICE: &str = "com.splice.desktop";
 const KEYRING_ACCOUNT: &str = "active-server";
 
@@ -172,7 +172,7 @@ pub(crate) struct SavedProfileSummary {
 pub(crate) async fn connect_server(
     request: ConnectRequest,
     state: tauri::State<'_, SessionState>,
-    connect_state: tauri::State<'_, SpliceConnectState>,
+    connect_state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<ConnectedLibrary, String> {
     let remember_me = request.remember_me;
     let saved = SavedCredentials {
@@ -274,7 +274,7 @@ async fn establish_session(
 #[tauri::command]
 pub(crate) async fn restore_session(
     state: tauri::State<'_, SessionState>,
-    connect_state: tauri::State<'_, SpliceConnectState>,
+    connect_state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<Option<ConnectedLibrary>, String> {
     let saved = tauri::async_runtime::spawn_blocking(load_active_profile)
         .await
@@ -331,7 +331,7 @@ pub(crate) async fn list_profiles() -> Result<Vec<SavedProfileSummary>, String> 
 pub(crate) async fn connect_profile(
     profile_id: String,
     state: tauri::State<'_, SessionState>,
-    connect_state: tauri::State<'_, SpliceConnectState>,
+    connect_state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<ConnectedLibrary, String> {
     let requested_id = profile_id.clone();
     let saved = tauri::async_runtime::spawn_blocking(move || {
@@ -370,7 +370,7 @@ pub(crate) async fn forget_profile(profile_id: String) -> Result<(), String> {
 pub(crate) async fn disconnect_server(
     forget_saved_login: Option<bool>,
     state: tauri::State<'_, SessionState>,
-    connect_state: tauri::State<'_, SpliceConnectState>,
+    connect_state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<(), String> {
     // A visible "Sign out" must actually remove the saved credential. Do that
     // before tearing down the live session so a credential-store failure does
@@ -618,7 +618,7 @@ pub(crate) async fn set_starred(
         "song" => "id",
         "album" => "albumId",
         "artist" => "artistId",
-        _ => return Err("Splice cannot star that item type.".to_string()),
+        _ => return Err("Splynt cannot star that item type.".to_string()),
     };
     let endpoint = if starred { "star.view" } else { "unstar.view" };
     session_request(&session, endpoint, &[(key, &id)]).await?;
@@ -863,7 +863,7 @@ pub(crate) async fn get_radio(
     };
     Ok(RadioResult {
         title: if title.trim().is_empty() {
-            "Splice Radio".to_string()
+            "Splynt Radio".to_string()
         } else {
             title.trim().to_string()
         },

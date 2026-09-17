@@ -40,7 +40,7 @@ export function LoginView({ initialError, onConnected }: LoginViewProps) {
     try {
       onConnected(await invoke<ConnectedLibrary>("connect_profile", { profileId: profile.id }));
     } catch (reason) {
-      setError(typeof reason === "string" ? reason : "Splice could not connect to that saved server.");
+      setError(typeof reason === "string" ? reason : "Splynt could not connect to that saved server.");
     } finally {
       setConnectingProfile(undefined);
     }
@@ -74,7 +74,7 @@ export function LoginView({ initialError, onConnected }: LoginViewProps) {
       const library = await invoke<ConnectedLibrary>("connect_server", { request });
       onConnected(library);
     } catch (reason) {
-      setError(typeof reason === "string" ? reason : "Splice could not connect to that server.");
+      setError(typeof reason === "string" ? reason : "Splynt could not connect to that server.");
     } finally {
       setIsConnecting(false);
     }

@@ -181,7 +181,7 @@ export function DownloadsView({ currentId, downloads, isPlaying, onClear, onMenu
 }
 
 export function ProfileView({ connectionStatus, library, onDevices, onSettings, onSignOut, overview }: { connectionStatus: "online" | "offline"; library: ConnectedLibrary; onDevices: () => void; onSettings: () => void; onSignOut: () => void; overview: LibraryOverview }) {
-  return <><div className="profile-hero"><span>{library.server.username.slice(0, 1).toUpperCase()}</span><div><p className="eyebrow">SPLICE PROFILE</p><h1>{library.server.username}</h1><p><i className={connectionStatus === "online" ? "profile-status profile-status--online" : "profile-status"} />{connectionStatus === "online" ? "Connected" : "Offline"} · {library.server.displayHost}</p></div></div><div className="profile-stats"><span><strong>{overview.albums.length.toLocaleString()}</strong><small>Albums</small></span><span><strong>{overview.artists.length.toLocaleString()}</strong><small>Artists</small></span><span><strong>{overview.playlists.length.toLocaleString()}</strong><small>Playlists</small></span><span><strong>{overview.starredSongs.length.toLocaleString()}</strong><small>Liked songs</small></span></div><div className="profile-actions"><button className="modal-primary" onClick={onSettings} type="button">Settings</button><button onClick={onDevices} type="button">Splice Connect</button><button onClick={onSignOut} type="button">Switch account</button></div></>;
+  return <><div className="profile-hero"><span>{library.server.username.slice(0, 1).toUpperCase()}</span><div><p className="eyebrow">SPLYNT PROFILE</p><h1>{library.server.username}</h1><p><i className={connectionStatus === "online" ? "profile-status profile-status--online" : "profile-status"} />{connectionStatus === "online" ? "Connected" : "Offline"} · {library.server.displayHost}</p></div></div><div className="profile-stats"><span><strong>{overview.albums.length.toLocaleString()}</strong><small>Albums</small></span><span><strong>{overview.artists.length.toLocaleString()}</strong><small>Artists</small></span><span><strong>{overview.playlists.length.toLocaleString()}</strong><small>Playlists</small></span><span><strong>{overview.starredSongs.length.toLocaleString()}</strong><small>Liked songs</small></span></div><div className="profile-actions"><button className="modal-primary" onClick={onSettings} type="button">Settings</button><button onClick={onDevices} type="button">Splynt Connect</button><button onClick={onSignOut} type="button">Switch account</button></div></>;
 }
 
 export function SettingsView({ contextWidth, downloads, library, onClearDownloads, onOpenPanel, onReload, onResetLayout, onSleep, settings, sidebarWidth, sleepRemaining, updateSetting, resetSettings }: { contextWidth: number; downloads: DownloadsController; library: ConnectedLibrary; onClearDownloads: () => void; onOpenPanel: (mode: ContextPanelMode) => void; onReload: () => void; onResetLayout: () => void; onSleep: (minutes: number | undefined) => void; settings: DesktopSettings; sidebarWidth: number; sleepRemaining?: number; updateSetting: <K extends keyof DesktopSettings>(key: K, value: DesktopSettings[K]) => void; resetSettings: () => void }) {
@@ -204,7 +204,7 @@ export function SettingsView({ contextWidth, downloads, library, onClearDownload
       <div className="setting-row setting-row--pickers"><span><strong>Lyrics text size</strong><small>Applies to the lyrics panel.</small></span><span className="setting-row__controls"><select aria-label="Lyrics text size" onChange={(event) => updateSetting("lyricsTextSize", event.target.value as DesktopSettings["lyricsTextSize"])} value={settings.lyricsTextSize}>{lyricsTextSizes.map((size) => <option key={size} value={size}>{size[0].toUpperCase() + size.slice(1)}</option>)}</select></span></div>
       <SettingToggle checked={settings.hideExternalPlaylists} label="Hide external playlists" hint="Leaves out playlists that come from a connected provider rather than your server." onChange={(value) => updateSetting("hideExternalPlaylists", value)} />
       <SettingToggle checked={settings.hideExplicitContent} label="Hide explicit content" hint="Filters explicit tracks out of browsing. Downloads are never hidden." onChange={(value) => updateSetting("hideExplicitContent", value)} />
-      <SettingToggle checked={settings.keepPlayingInBackground} label="Keep playing when the window closes" hint="Closing hides Splice to the tray instead of quitting. Quit always stops playback." onChange={(value) => updateSetting("keepPlayingInBackground", value)} />
+      <SettingToggle checked={settings.keepPlayingInBackground} label="Keep playing when the window closes" hint="Closing hides Splynt to the tray instead of quitting. Quit always stops playback." onChange={(value) => updateSetting("keepPlayingInBackground", value)} />
     </section>
 
     <EqualizerPanel onChange={(value) => updateSetting("equalizer", value)} settings={settings.equalizer} />
@@ -241,12 +241,12 @@ export function SettingsView({ contextWidth, downloads, library, onClearDownload
     <section><h2>Offline storage</h2><dl><dt>Downloaded tracks</dt><dd>{downloads.items.length.toLocaleString()}</dd><dt>Audio usage</dt><dd>{formatBytes(downloads.totalBytes)}</dd><dt>Artwork cache</dt><dd>{cache.files.toLocaleString()} files · {formatBytes(cache.bytes)}</dd><dt>Profile scope</dt><dd>{library.server.username}@{library.server.displayHost}</dd><dt>Offline browsing</dt><dd>{offlineCacheDegraded() ? "Limited — this library is too large for the local store" : "Saved"}</dd></dl><p>Partial downloads are retained so interrupted transfers can resume. Downloaded audio always plays before the network copy.</p><div className="settings-actions">{downloads.items.length > 0 && <button onClick={onClearDownloads} type="button">Clear downloads</button>}{cache.files > 0 && <button onClick={() => void invoke("clear_artwork_cache").then(() => { setCache({ files: 0, bytes: 0 }); })} type="button">Clear artwork cache</button>}</div></section>
 
     <section><h2>Diagnostics</h2>
-      <p>Splice records what it is doing to a log file — launches, failures, anything the interface reports, and any crash of the previous session. Nothing leaves this computer unless you send it.</p>
+      <p>Splynt records what it is doing to a log file — launches, failures, anything the interface reports, and any crash of the previous session. Nothing leaves this computer unless you send it.</p>
       <dl><dt>Log file</dt><dd className="settings-path">{diagnosticsPath ?? "Not created yet"}</dd></dl>
       <div className="settings-actions"><button disabled={!diagnosticsPath} onClick={() => void invoke("reveal_diagnostics").catch(() => undefined)} type="button">Show log</button></div>
     </section>
 
-    <section><h2>Splice Connect</h2><p>Players signed in to this server account can hand off playback, act as remotes, or join a synchronized group.</p><button onClick={() => onOpenPanel("connect")} type="button">Open devices</button></section>
+    <section><h2>Splynt Connect</h2><p>Players signed in to this server account can hand off playback, act as remotes, or join a synchronized group.</p><button onClick={() => onOpenPanel("connect")} type="button">Open devices</button></section>
 
     <section><h2>Keyboard</h2><dl><dt>Search</dt><dd>⌘/Ctrl K</dd><dt>Play or pause</dt><dd>Space</dd><dt>Queue</dt><dd>⌘/Ctrl ⇧ Q</dd><dt>Preferences</dt><dd>⌘/Ctrl ,</dd><dt>Shortcut help</dt><dd>?</dd></dl><p>Back and Forward also follow your platform’s browser shortcuts.</p></section>
   </div>
@@ -254,7 +254,7 @@ export function SettingsView({ contextWidth, downloads, library, onClearDownload
       more settings card competing with Playback and Offline storage. Sitting
       under the grid it closes the page instead of interrupting it. */}
   <footer className="settings-support">
-    {/* No supporting copy. Anything framing this as "Splice is free" would be
+    {/* No supporting copy. Anything framing this as "Splynt is free" would be
         a pricing claim, and the iOS app is not committed to being free once it
         reaches the App Store. The link stands on its own. */}
     <button onClick={() => void invoke("open_support_page").catch(() => undefined)} type="button">

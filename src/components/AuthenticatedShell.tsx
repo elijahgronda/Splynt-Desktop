@@ -301,7 +301,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
         if (!snapshot?.songs?.length || playbackRef.current.queue.length) return;
         const match = snapshot.currentId ? snapshot.songs.findIndex((song) => song.id === snapshot.currentId) : 0;
         playbackRef.current.playQueue(snapshot.songs, Math.max(0, match), false, snapshot.position, "Synced queue");
-        setToast("Queue restored from your other Splice devices");
+        setToast("Queue restored from your other Splynt devices");
       })
       .catch(() => undefined);
   }, [offline]);
@@ -556,7 +556,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
     return () => dispose?.();
   }, [navigate, openPanel]);
 
-  const applyHandoff = useCallback(async (handoff: NonNullable<ConnectCommand["handoff"]>, label = "Splice Connect", startAt?: number) => {
+  const applyHandoff = useCallback(async (handoff: NonNullable<ConnectCommand["handoff"]>, label = "Splynt Connect", startAt?: number) => {
     const active = await invoke<SongSummary[]>("get_songs_by_ids", { ids: [handoff.currentTrackID] });
     if (!active[0]) throw new Error("The active track was not available on this server.");
     playbackRef.current.playQueue(active, 0, handoff.isPlaying, startAt ?? handoff.position, label);
@@ -798,7 +798,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
     if (!remoteDevice) return playback;
     const send = (command: ConnectCommand) => {
       void invoke("send_connect_command", { peerId: remoteDevice.id, command })
-        .catch(() => setPageError(`Splice could not reach ${remoteDevice.name}.`));
+        .catch(() => setPageError(`Splynt could not reach ${remoteDevice.name}.`));
     };
     return {
       ...playback,
@@ -895,7 +895,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       await invoke("disconnect_server", { forgetSavedLogin });
       onSignedOut();
     } catch (reason) {
-      setPageError(reasonMessage(reason, forgetSavedLogin ? "Splice could not remove the saved login." : "Splice could not switch accounts."));
+      setPageError(reasonMessage(reason, forgetSavedLogin ? "Splynt could not remove the saved login." : "Splynt could not switch accounts."));
       setSignOutConfirm(false);
     } finally {
       setLeavingSession(false);
@@ -929,7 +929,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
         position,
         isPlaying: true,
       } },
-    }).catch(() => setPageError(`Splice could not reach ${remote.name}.`));
+    }).catch(() => setPageError(`Splynt could not reach ${remote.name}.`));
     setToast(`Playing on ${remote.name}`);
   }, []);
 
@@ -1172,7 +1172,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       return !commitment || (!commitment.sessionID && !commitment.controllingPeerID);
     });
     if (!candidates.length) {
-      setPageError("Every nearby Splice device is already in a session.");
+      setPageError("Every nearby Splynt device is already in a session.");
       return;
     }
     const sessionId = crypto.randomUUID();
@@ -1195,7 +1195,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       lastGroupTrack.current = undefined;
       groupRevision.current = 0;
       logConnectEvent("group_invited", { session: sessionId, invited: candidates.length, accepted: 0, declined: 0, unanswered: 0, reasons: "", queued: handoff.trackIDs.length, unreachable: candidates.length });
-      setPageError("No other Splice device could be reached.");
+      setPageError("No other Splynt device could be reached.");
       return;
     }
     const invite = { sessionId, awaiting, accepted: [] as string[], declined: new Map<string, string>() };
@@ -1221,8 +1221,8 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
       lastGroupTrack.current = undefined;
       groupRevision.current = 0;
       setPageError(invite.declined.size
-        ? "No other Splice device could join right now."
-        : "No other Splice device answered.");
+        ? "No other Splynt device could join right now."
+        : "No other Splynt device answered.");
       return;
     }
     setGroupSession({ id: sessionId, leaderID: localId, memberIDs: members });
@@ -1390,7 +1390,7 @@ export function AuthenticatedShell({ library, onConnectionRestored, onSignedOut 
   const startRadio = (song: SongSummary) => navigate({ kind: "radio", id: song.id, title: `${song.title} Radio` });
   const toggleShuffle = () => playback.setShuffle((value) => !value);
   const detailTitle = detail ? ("name" in detail ? detail.name : "title" in detail ? detail.title : undefined) : undefined;
-  const routeTitle = route.kind === "home" ? greeting() : route.kind === "search" ? "Search" : route.kind === "library" ? "Your Library" : route.kind === "liked" ? "Liked Songs" : route.kind === "downloads" ? "Downloads" : route.kind === "profile" ? "Profile" : route.kind === "settings" ? "Settings" : route.kind === "radio" ? route.title : "Splice";
+  const routeTitle = route.kind === "home" ? greeting() : route.kind === "search" ? "Search" : route.kind === "library" ? "Your Library" : route.kind === "liked" ? "Liked Songs" : route.kind === "downloads" ? "Downloads" : route.kind === "profile" ? "Profile" : route.kind === "settings" ? "Settings" : route.kind === "radio" ? route.title : "Splynt";
   const visiblePlaylists = settings.hideExternalPlaylists
     ? libraryData.playlists.filter((playlist) => parseExternalSource(playlist.id)?.type !== "playlist")
     : libraryData.playlists;

@@ -29,7 +29,7 @@ const MAX_CLOCK_SAMPLES: usize = 8;
 /// and a probe unanswered this long is never going to be.
 const CLOCK_RETENTION: Duration = Duration::from_secs(30);
 
-/// Wire field names come from `SpliceConnect.swift`, which `docs/connect/WIRE-V1.md`
+/// Wire field names come from `SplyntConnect.swift`, which `docs/connect/WIRE-V1.md`
 /// names as the contract this file has to match byte-for-byte. Swift synthesises
 /// its coding keys from property names, so an id key is `trackID` and a plain
 /// `rename_all = "camelCase"` writes `trackId` instead. That one letter meant
@@ -53,7 +53,7 @@ pub(crate) struct ConnectPlayback {
 }
 
 /// What a device is currently committed to, published on every state frame.
-/// See `SpliceConnectCommitment` in `SpliceConnect.swift`: this is the field
+/// See `SplyntConnectCommitment` in `SplyntConnect.swift`: this is the field
 /// that makes "an output belongs to one session at a time" checkable.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -227,9 +227,9 @@ struct Runtime {
 }
 
 #[derive(Default)]
-pub(crate) struct SpliceConnectState(Mutex<Option<Arc<Runtime>>>);
+pub(crate) struct SplyntConnectState(Mutex<Option<Arc<Runtime>>>);
 
-impl SpliceConnectState {
+impl SplyntConnectState {
     pub(crate) fn configure(
         &self,
         server: &str,
@@ -243,7 +243,7 @@ impl SpliceConnectState {
             .ok()
             .and_then(|name| name.into_string().ok())
             .filter(|name| !name.trim().is_empty())
-            .unwrap_or_else(|| "Splice Desktop".to_string());
+            .unwrap_or_else(|| "Splynt Desktop".to_string());
         let platform = if cfg!(target_os = "macos") {
             "macOS"
         } else if cfg!(target_os = "windows") {
@@ -252,26 +252,26 @@ impl SpliceConnectState {
             "Linux"
         };
         let listener = TcpListener::bind("0.0.0.0:0")
-            .map_err(|error| format!("Splice Connect could not open a local listener: {error}"))?;
+            .map_err(|error| format!("Splynt Connect could not open a local listener: {error}"))?;
         listener
             .set_nonblocking(true)
-            .map_err(|error| format!("Splice Connect could not configure its listener: {error}"))?;
+            .map_err(|error| format!("Splynt Connect could not configure its listener: {error}"))?;
         let port = listener
             .local_addr()
-            .map_err(|error| format!("Splice Connect could not read its local port: {error}"))?
+            .map_err(|error| format!("Splynt Connect could not read its local port: {error}"))?
             .port();
         let local_ip = local_ip_address::local_ip().map_err(|error| {
-            format!("Splice Connect could not find a local network address: {error}")
+            format!("Splynt Connect could not find a local network address: {error}")
         })?;
         let mdns = ServiceDaemon::new()
-            .map_err(|error| format!("Splice Connect could not start discovery: {error}"))?;
+            .map_err(|error| format!("Splynt Connect could not start discovery: {error}"))?;
         let _ = mdns.set_service_name_len_max(32);
         let suffix: String = device_id
             .chars()
             .filter(|character| *character != '-')
             .take(8)
             .collect();
-        let instance_name = format!("Splice-{suffix}");
+        let instance_name = format!("Splynt-{suffix}");
         let host_name = format!("splice-{suffix}.local.");
         let service = ServiceInfo::new(
             SERVICE_TYPE,
@@ -281,9 +281,9 @@ impl SpliceConnectState {
             port,
             None::<HashMap<String, String>>,
         )
-        .map_err(|error| format!("Splice Connect could not describe this device: {error}"))?;
+        .map_err(|error| format!("Splynt Connect could not describe this device: {error}"))?;
         mdns.register(service)
-            .map_err(|error| format!("Splice Connect could not advertise this device: {error}"))?;
+            .map_err(|error| format!("Splynt Connect could not advertise this device: {error}"))?;
 
         let runtime = Arc::new(Runtime {
             alive: AtomicBool::new(true),
@@ -311,7 +311,7 @@ impl SpliceConnectState {
         *self
             .0
             .lock()
-            .map_err(|_| "Splice Connect state is unavailable.".to_string())? =
+            .map_err(|_| "Splynt Connect state is unavailable.".to_string())? =
             Some(runtime.clone());
         start_listener(runtime.clone(), listener);
         start_browser(runtime.clone(), instance_name)?;
@@ -336,7 +336,7 @@ impl SpliceConnectState {
 pub(crate) fn publish_connect_playback(
     playback: ConnectPlayback,
     commitment: Option<ConnectCommitment>,
-    state: tauri::State<'_, SpliceConnectState>,
+    state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<(), String> {
     let Some(runtime) = state.runtime() else {
         return Ok(());
@@ -344,7 +344,7 @@ pub(crate) fn publish_connect_playback(
     let mut peer = runtime
         .local_peer
         .lock()
-        .map_err(|_| "Splice Connect playback is unavailable.".to_string())?;
+        .map_err(|_| "Splynt Connect playback is unavailable.".to_string())?;
     peer.playback = playback;
     peer.commitment = commitment;
     peer.updated_at = apple_reference_time();
@@ -354,7 +354,7 @@ pub(crate) fn publish_connect_playback(
 }
 
 #[tauri::command]
-pub(crate) fn connect_snapshot(state: tauri::State<'_, SpliceConnectState>) -> ConnectSnapshot {
+pub(crate) fn connect_snapshot(state: tauri::State<'_, SplyntConnectState>) -> ConnectSnapshot {
     let Some(runtime) = state.runtime() else {
         return ConnectSnapshot {
             is_available: false,
@@ -397,15 +397,15 @@ pub(crate) fn connect_snapshot(state: tauri::State<'_, SpliceConnectState>) -> C
 pub(crate) fn send_connect_command(
     peer_id: String,
     command: ConnectCommand,
-    state: tauri::State<'_, SpliceConnectState>,
+    state: tauri::State<'_, SplyntConnectState>,
 ) -> Result<(), String> {
     let runtime = state
         .runtime()
-        .ok_or_else(|| "Splice Connect is not available.".to_string())?;
+        .ok_or_else(|| "Splynt Connect is not available.".to_string())?;
     let route = runtime
         .routes
         .lock()
-        .map_err(|_| "Splice Connect routes are unavailable.".to_string())?
+        .map_err(|_| "Splynt Connect routes are unavailable.".to_string())?
         .get(&peer_id)
         .cloned()
         .ok_or_else(|| "That device is no longer connected.".to_string())?;
@@ -438,7 +438,7 @@ fn start_browser(runtime: Arc<Runtime>, local_instance: String) -> Result<(), St
     let receiver = runtime
         .mdns
         .browse(SERVICE_TYPE)
-        .map_err(|error| format!("Splice Connect could not browse for devices: {error}"))?;
+        .map_err(|error| format!("Splynt Connect could not browse for devices: {error}"))?;
     thread::spawn(move || {
         while runtime.alive.load(Ordering::Relaxed) {
             match receiver.recv_timeout(Duration::from_secs(1)) {
@@ -1036,20 +1036,20 @@ fn send_state(runtime: &Arc<Runtime>, connection: &Arc<Mutex<TcpStream>>) -> boo
 
 fn send_wire(connection: &Arc<Mutex<TcpStream>>, message: &WireMessage) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(message)
-        .map_err(|_| "Splice Connect could not encode a message.".to_string())?;
+        .map_err(|_| "Splynt Connect could not encode a message.".to_string())?;
     bytes.push(b'\n');
     connection
         .lock()
-        .map_err(|_| "Splice Connect lost the device connection.".to_string())?
+        .map_err(|_| "Splynt Connect lost the device connection.".to_string())?
         .write_all(&bytes)
-        .map_err(|error| format!("Splice Connect could not send to that device: {error}"))
+        .map_err(|error| format!("Splynt Connect could not send to that device: {error}"))
 }
 
 /// Read from the Keychain at most once per process.
 ///
 /// This is a second Keychain item alongside the saved credentials, and both
 /// dialogs name the same service, so a user cannot tell them apart — they only
-/// see Splice asking again. `configure` runs on connect, on session restore and
+/// see Splynt asking again. `configure` runs on connect, on session restore and
 /// on every profile switch, so without this the device id was re-read each
 /// time. The value is a stable per-install identifier, so one read is all it
 /// can ever need.
@@ -1707,7 +1707,7 @@ mod tests {
     /// is written as literal JSON rather than a round trip through these
     /// structs. Both sides passed their own tests for as long as the desktop
     /// has existed, because each asserted the shape it already produced.
-    /// `docs/connect/WIRE-V1.md` names `SpliceConnect.swift` as the contract,
+    /// `docs/connect/WIRE-V1.md` names `SplyntConnect.swift` as the contract,
     /// and Swift's synthesized coding keys spell every id key with a capital
     /// `ID`. These strings are copied from that document; change them only
     /// when the Swift side changes first.

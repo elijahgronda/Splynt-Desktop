@@ -3957,7 +3957,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "splice-desktop"
+name = "splynt-desktop"
 version = "1.0.1"
 dependencies = [
  "axum",

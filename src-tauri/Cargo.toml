@@ -1,12 +1,12 @@
 [package]
-name = "splice-desktop"
+name = "splynt-desktop"
 version = "1.0.1"
-description = "Splice music client for macOS, Windows, and Linux"
-authors = ["Splice"]
+description = "Splynt music client for macOS, Windows, and Linux"
+authors = ["Splynt"]
 edition = "2021"
 
 [lib]
-name = "splice_desktop_lib"
+name = "splynt_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

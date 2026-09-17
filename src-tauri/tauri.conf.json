@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Splice",
+  "productName": "Splynt",
   "version": "1.0.1",
   "identifier": "com.splice.desktop",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Splice",
+        "title": "Splynt",
         "width": 1440,
         "height": 900,
         "minWidth": 680,
@@ -42,7 +42,7 @@
     ],
     "category": "Music",
     "shortDescription": "Your music, everywhere.",
-    "longDescription": "A cross-platform Navidrome and Subsonic music client with Splice Connect.",
+    "longDescription": "A cross-platform Navidrome and Subsonic music client with Splynt Connect.",
     "macOS": {
       "minimumSystemVersion": "12.0",
       "signingIdentity": "-"

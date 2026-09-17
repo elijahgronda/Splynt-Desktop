@@ -1,7 +1,7 @@
 import type { ConnectGroup } from "../types";
 
-/// The Splice Connect group clock, mirroring `SpliceConnectDrift` and
-/// `SpliceConnectGroup.projectedPosition` in `SpliceConnect.swift`. All three
+/// The Splynt Connect group clock, mirroring `SplyntConnectDrift` and
+/// `SplyntConnectGroup.projectedPosition` in `SplyntConnect.swift`. All three
 /// clients have to agree on what a group frame means and on what a given drift
 /// costs, so the numbers live in one place per platform and the two places
 /// carry the same values.

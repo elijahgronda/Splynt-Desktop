@@ -1,6 +1,6 @@
 // The equalizer's model and its arithmetic, with no Web Audio in it.
 //
-// Deliberately a port of Splice/Player/Equalizer.swift rather than a second
+// Deliberately a port of Splynt/Player/Equalizer.swift rather than a second
 // design: same ten ISO centres, same Q, same shelves at the ends, same preset
 // curves. Web Audio's BiquadFilterNode implements the RBJ cookbook, which is
 // what the iOS kernel implements by hand, so identical inputs give identical

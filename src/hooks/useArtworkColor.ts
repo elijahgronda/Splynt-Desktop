@@ -6,7 +6,7 @@ const cache = new Map<string, string>();
 /// Samples the cover to tint the collection hero, the way every one of these
 /// apps does. The proxy sends Access-Control-Allow-Origin, so an anonymous
 /// request keeps the canvas readable; anything that fails falls back to the
-/// Splice green wash rather than blocking the page.
+/// Splynt green wash rather than blocking the page.
 export function useArtworkColor(coverArt?: string) {
   const [color, setColor] = useState<string | undefined>(() => coverArt ? cache.get(coverArt) : undefined);
 

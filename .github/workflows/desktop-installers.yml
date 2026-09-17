@@ -143,9 +143,9 @@ jobs:
           # so no draft release is created and the installers are downloadable
           # from the run's Artifacts section instead.
           tagName: ${{ github.ref_type == 'tag' && 'v__VERSION__' || '' }}
-          releaseName: ${{ github.ref_type == 'tag' && 'Splice v__VERSION__' || '' }}
+          releaseName: ${{ github.ref_type == 'tag' && 'Splynt v__VERSION__' || '' }}
           releaseDraft: ${{ github.ref_type == 'tag' }}
           prerelease: false
           uploadWorkflowArtifacts: true
-          workflowArtifactNamePattern: Splice-[version]-[platform]-[arch]-[bundle]
+          workflowArtifactNamePattern: Splynt-[version]-[platform]-[arch]-[bundle]
           args: ${{ matrix.args }}

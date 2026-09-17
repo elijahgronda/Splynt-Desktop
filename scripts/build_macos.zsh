@@ -16,9 +16,9 @@ if [[ -z "$identity" ]]; then
 fi
 
 if [[ -z "$identity" ]]; then
-  print -u2 "No valid macOS code-signing identity was found. Install one with Xcode before building Splice."
+  print -u2 "No valid macOS code-signing identity was found. Install one with Xcode before building Splynt."
   exit 1
 fi
 
-print "Building Splice with stable signing identity: $identity"
+print "Building Splynt with stable signing identity: $identity"
 APPLE_SIGNING_IDENTITY="$identity" npm run tauri build -- --bundles app,dmg

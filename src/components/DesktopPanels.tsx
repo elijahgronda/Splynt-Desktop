@@ -48,7 +48,7 @@ export function DesktopContextPanel(props: ContextPanelProps) {
     <aside className="context-panel" aria-label={title}>
       <button aria-label="Resize context panel" aria-orientation="vertical" aria-valuemax={460} aria-valuemin={280} aria-valuenow={Math.round(props.width)} className="context-panel__resizer" onKeyDown={props.onResizeKey} onPointerDown={props.onResize} role="separator" type="button" />
       <header>
-        <div><p className="eyebrow">{props.mode === "connect" ? "SPLICE CONNECT" : "SPLICE"}</p><h2>{title}</h2></div>
+        <div><p className="eyebrow">{props.mode === "connect" ? "SPLYNT CONNECT" : "SPLYNT"}</p><h2>{title}</h2></div>
         <button aria-label={`Close ${title}`} onClick={props.onClose} type="button"><X size={20} /></button>
       </header>
       {props.mode === "nowPlaying" && <NowPlayingPanel playback={props.playback} />}
@@ -189,7 +189,7 @@ function activeLyricIndex(lyrics: LyricsResult, position: number) {
 
 /// A desktop peer defaults to the OS computer name, which arrives over Bonjour
 /// as `Something.local`. Nobody calls their laptop that. Mirrors
-/// `SpliceConnectPeer.displayName` on the Swift side.
+/// `SplyntConnectPeer.displayName` on the Swift side.
 function deviceName(peer: ConnectPeer) {
   return peer.name.toLowerCase().endsWith(".local") ? peer.name.slice(0, -6) : peer.name;
 }
@@ -275,7 +275,7 @@ function ConnectPanel({ canHandoff, groupId, onMoveHere, onMoveToDevice, onSend,
             )}
           </div>
         </section>
-      )) : <PanelEmpty icon={MonitorSpeaker} text="No other Splice players found on this network." />}
+      )) : <PanelEmpty icon={MonitorSpeaker} text="No other Splynt players found on this network." />}
     </div>
   );
 }
@@ -334,7 +334,7 @@ export function FullPlayer({ liked, lyrics, lyricsAutoScroll, lyricsLoading, lyr
             <button aria-checked={surface === "lyrics"} aria-label="Show lyrics" className={surface === "lyrics" ? "full-player__header-action full-player__header-action--active" : "full-player__header-action"} disabled={!lyricsLoading && lyrics.lines.length === 0} onClick={() => setSurface("lyrics")} role="radio" title="Lyrics" type="button"><MessageSquareQuote size={19} /></button>
           </div>
           <button aria-label="Open queue" className="full-player__header-action" onClick={() => showPanel("queue")} title="Queue" type="button"><ListMusic size={19} /></button>
-          <button aria-label="Open Splice Connect devices" className="full-player__header-action" onClick={() => showPanel("connect")} title="Devices" type="button"><MonitorSpeaker size={19} /></button>
+          <button aria-label="Open Splynt Connect devices" className="full-player__header-action" onClick={() => showPanel("connect")} title="Devices" type="button"><MonitorSpeaker size={19} /></button>
           <div className="full-player__menu-wrap">
             <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label="More options" className="full-player__header-action" onClick={() => setMenuOpen((value) => !value)} title="More" type="button"><MoreHorizontal size={20} /></button>
             {menuOpen && <div aria-label="Current track" className="full-player__menu" role="menu">

@@ -73,7 +73,7 @@ function createElement() {
   element.preload = "auto";
   // Set before any `src`, and unconditionally rather than only when the
   // equalizer is on: `crossOrigin` only takes effect on requests made after it
-  // is assigned, so flipping it later would need a reload mid-track. Splice's
+  // is assigned, so flipping it later would need a reload mid-track. Splynt's
   // own media proxy answers with `Access-Control-Allow-Origin: *` on both the
   // streamed and the downloaded path, so this changes nothing about what plays.
   // Without it, routing the element through Web Audio yields silence.
@@ -562,7 +562,7 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
   /// whole second changes, so the shell does not re-render several times a
   /// second; the progress rail interpolates between those anchors locally, so
   /// the throttle is invisible on screen. It is not invisible to anything that
-  /// treats the value as a *measurement* — every Splice Connect path did, and
+  /// treats the value as a *measurement* — every Splynt Connect path did, and
   /// inherited up to a second of error both in the clock it published and in
   /// the drift it computed against another device's clock. Those read this.
   const positionNow = useCallback(() => {
@@ -575,10 +575,10 @@ export function usePlayback(storageScope = "default", options: PlaybackOptions =
     return positionRef.current;
   }, [audio]);
 
-  /// Nudges the audio clock instead of jumping it, for Splice Connect group
+  /// Nudges the audio clock instead of jumping it, for Splynt Connect group
   /// drift correction.
   ///
-  /// `preservesPitch` is on by default in both webviews Splice ships against,
+  /// `preservesPitch` is on by default in both webviews Splynt ships against,
   /// but it is set here anyway: a 2% correction that shifts pitch is a
   /// correction the listener can hear, which is the whole thing this avoids.
   /// The restore has its own deadline because the leader can go quiet

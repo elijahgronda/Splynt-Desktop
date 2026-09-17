@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/icon.png" alt="Splice" width="140">
+  <img src="assets/icon.png" alt="Splynt" width="140">
 </p>
 
-<h1 align="center">Splice Desktop</h1>
+<h1 align="center">Splynt Desktop</h1>
 
 <p align="center">
   Cross-platform desktop client for <a href="https://www.navidrome.org/">Navidrome</a>
@@ -17,12 +17,11 @@
 
 ---
 
-Splice opens on server login and never substitutes a bundled demo library. After you
+Splynt opens on server login and never substitutes a bundled demo library. After you
 authenticate, it renders only what your own server returns.
 
-> **Coming to Apple devices.** The main Splice app for iPhone, iPad and Apple TV is
-> arriving on **TestFlight soon**. Join the [Discord](https://discord.gg/kkaZfRpsm)
-> to get the invite when it goes out.
+> **Apple devices.** The iOS beta is available through TestFlight. Join the
+> [Discord](https://discord.gg/kkaZfRpsm) for invitations and release announcements.
 
 ## Download
 
@@ -33,7 +32,7 @@ Grab an installer from the [latest release](../../releases/latest):
 | Windows | `.exe` (NSIS) or `.msi` |
 | Linux | `.AppImage` or `.deb` |
 
-**You need your own server.** Splice is a client, not a music service. Point it at a
+**You need your own server.** Splynt is a client, not a music service. Point it at a
 Navidrome or Subsonic-compatible server you already run.
 
 Builds are not signed for public distribution, so Windows SmartScreen may ask for
@@ -45,7 +44,7 @@ confirmation on first launch — choose **More info → Run anyway**.
   Liked Songs, backed live by your own server
 - **Daily Mix & listening stats** — personalized mixes generated from your library,
   plus top songs, artists and albums, listening clock, streaks and habits
-- **Splice Connect** — discover and hand off playback between your devices, with
+- **Splynt Connect** — discover and hand off playback between your devices, with
   shared queue and transport control
 - **Offline downloads** — per-server download management with in-flight/failed state
   and disk preflight checks
@@ -74,7 +73,7 @@ GitHub release on a `v*` tag.
 
 [GNU GPL v3.0 or later](LICENSE).
 
-You may use, modify and redistribute Splice Desktop freely. If you distribute a
+You may use, modify and redistribute Splynt Desktop freely. If you distribute a
 modified version, it must also be released under the GPL with its source available.
 
 The iOS, tvOS and watchOS clients are separate, closed-source products and are not

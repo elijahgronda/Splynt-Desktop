@@ -5,9 +5,9 @@ import {
 } from "./connectClock";
 import type { ConnectGroup } from "../types";
 
-/// The desktop half of the Splice Connect group clock. The numbers here have
-/// to match `SpliceConnectDrift` and `SpliceConnectGroup.projectedPosition` in
-/// `SpliceConnect.swift`; a device following the same leader must reach the
+/// The desktop half of the Splynt Connect group clock. The numbers here have
+/// to match `SplyntConnectDrift` and `SplyntConnectGroup.projectedPosition` in
+/// `SplyntConnect.swift`; a device following the same leader must reach the
 /// same decision whichever client it runs.
 
 function group(overrides: Partial<ConnectGroup> = {}): ConnectGroup {

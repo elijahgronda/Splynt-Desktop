@@ -68,7 +68,7 @@ func squircle(in rect: CGRect, exponent: Double = 5) -> CGPath {
 // A modern macOS icon occupies roughly 80% of its 1024px canvas. The former
 // asset painted to every edge, so Dock rendered it visibly larger than native
 // and third-party icons. The transparent safe area and continuous-corner mask
-// preserve the existing Splice mark while matching the platform's optical size.
+// preserve the existing Splynt mark while matching the platform's optical size.
 let masterSize = 1024
 let visibleSize = 824
 let visibleOrigin = (masterSize - visibleSize) / 2

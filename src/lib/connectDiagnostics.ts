@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-/// Splice Connect is the one part of the client that cannot be debugged by
+/// Splynt Connect is the one part of the client that cannot be debugged by
 /// looking at it: the symptom lives in the relationship between two machines,
 /// and the person who hits it is not going to have a debugger attached to
 /// both. So it records measurements to the same diagnostics file as everything
